@@ -1,0 +1,3447 @@
+MONO 10 PLAINTEXT
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+// English letter frequency in percentage
+const double english_freq[26] = {
+    8.167, 1.492, 2.782, 4.253, 12.702, 2.228, 2.015, 6.094, 6.966, 0.153,
+    0.772, 4.025, 2.406, 6.749, 7.507, 1.929, 0.095, 5.987, 6.327, 9.056,
+    2.758, 0.978, 2.360, 0.150, 1.974, 0.074
+};
+
+// Structure to store frequency analysis data
+typedef struct {
+    char letter;
+    double freq;
+} Frequency;
+
+void frequency_analysis(const char* text, Frequency freq_table[26]) {
+    int count[26] = {0};
+    int length = 0;
+
+    // Count the frequency of each letter
+    for (int i = 0; text[i] != '\0'; i++) {
+        if (isalpha(text[i])) {
+            count[toupper(text[i]) - 'A']++;
+            length++;
+        }
+    }
+
+    // Fill the frequency table
+    for (int i = 0; i < 26; i++) {
+        freq_table[i].letter = 'A' + i;
+        freq_table[i].freq = (double)count[i] / length * 100;
+    }
+}
+
+int compare_freq(const void* a, const void* b) {
+    Frequency* fa = (Frequency*)a;
+    Frequency* fb = (Frequency*)b;
+    return (fa->freq < fb->freq) - (fa->freq > fb->freq);
+}
+
+int compare_likelihood(const void* a, const void* b) {
+    double* da = (double*)a;
+    double* db = (double*)b;
+    return (*da < *db) - (*da > *db);
+}
+
+void generate_possible_plaintexts(const char* ciphertext, int top_n) {
+    Frequency cipher_freq[26];
+    frequency_analysis(ciphertext, cipher_freq);
+
+    // Sort cipher_freq by frequency
+    qsort(cipher_freq, 26, sizeof(Frequency), compare_freq);
+
+    // Calculate likelihood of each possible plaintext
+    double likelihoods[26];
+    char mappings[26][26];
+
+    for (int i = 0; i < 26; i++) {
+        likelihoods[i] = 0;
+        for (int j = 0; j < 26; j++) {
+            mappings[i][cipher_freq[j].letter - 'A'] = 'A' + (j + i) % 26;
+            likelihoods[i] += abs(cipher_freq[j].freq - english_freq[(j + i) % 26]);
+        }
+    }
+
+    // Sort likelihoods to get the top N possible plaintexts
+    double sorted_likelihoods[26];
+    memcpy(sorted_likelihoods, likelihoods, sizeof(likelihoods));
+    qsort(sorted_likelihoods, 26, sizeof(double), compare_likelihood);
+
+    printf("Top %d possible plaintexts:\n", top_n);
+    for (int i = 0; i < top_n; i++) {
+        for (int j = 0; j < 26; j++) {
+            if (sorted_likelihoods[i] == likelihoods[j]) {
+                printf("Plaintext %d:\n", i + 1);
+                for (int k = 0; ciphertext[k] != '\0'; k++) {
+                    if (isalpha(ciphertext[k])) {
+                        printf("%c", mappings[j][toupper(ciphertext[k]) - 'A']);
+                    } else {
+                        printf("%c", ciphertext[k]);
+                    }
+                }
+                printf("\n");
+                break;
+            }
+        }
+    }
+}
+
+int main() {
+    char ciphertext[1000];
+    int top_n;
+
+    printf("Enter the ciphertext: ");
+    fgets(ciphertext, sizeof(ciphertext), stdin);
+    ciphertext[strcspn(ciphertext, "\n")] = '\0'; // Remove newline character
+
+    printf("Enter the number of top possible plaintexts to produce: ");
+    scanf("%d", &top_n);
+
+    generate_possible_plaintexts(ciphertext, top_n);
+
+    return 0;
+}
+-------------------------------------------------------------------------------------------------------
+MY HILL CIPHER
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#define MAX_SIZE 100
+void hillCipherEncrypt(int **keyMatrix,int *messageVector,int *cipherMatrix,int keySize){
+    for(int i=0;i<keySize;i++){
+        cipherMatrix[i]=0;
+        for (int k=0;k<keySize;k++){
+            cipherMatrix[i]+=keyMatrix[i][k]*messageVector[k];
+        }
+        cipherMatrix[i]=cipherMatrix[i]%26;
+    }
+}
+int modInverse(int a,int m){
+    a=a%m;
+    for(int x=1;x<m;x++){
+        if((a*x)%m==1){
+            return x;
+        }
+    }
+    return -1;
+}
+void getCofactor(int **matrix,int **temp,int p,int q,int n){
+    int i=0,j=0;
+    for (int row=0;row<n;row++){
+        for (int col=0;col<n;col++){
+            if (row!=p&&col!=q){
+                temp[i][j++]=matrix[row][col];
+                if (j==n-1){
+                    j=0;
+                    i++;
+                }
+            }
+        }
+    }
+}
+int determinant(int **matrix,int n){
+    int D=0;
+    if(n==1)
+        return matrix[0][0];
+    int **temp=(int **)malloc(n*sizeof(int *));
+    for(int i=0;i<n;i++)
+        temp[i]=(int *)malloc(n*sizeof(int));
+    int sign=1;
+    for(int f=0;f<n;f++){
+        getCofactor(matrix,temp,0,f,n);
+        D+=sign*matrix[0][f]*determinant(temp,n-1);
+        sign=-sign;
+    }
+    for(int i=0;i<n;i++)
+        free(temp[i]);
+    free(temp);
+    return D;
+}
+void adjoint(int **matrix,int **adj,int N){
+    if(N==1){
+        adj[0][0]=1;
+        return;
+    }
+    int sign=1;
+    int **temp=(int **)malloc(N * sizeof(int *));
+    for (int i=0;i<N;i++)
+        temp[i]=(int *)malloc(N*sizeof(int));
+    for (int i=0;i<N;i++){
+        for (int j=0;j<N;j++){
+            getCofactor(matrix,temp,i,j,N);
+            sign=((i+j)%2==0)?1:-1;
+            adj[j][i]=(sign*determinant(temp,N-1))%26;
+            if (adj[j][i]<0)
+                adj[j][i]+=26;
+        }
+    }
+    for(int i=0;i<N;i++)
+        free(temp[i]);
+    free(temp);
+}
+int inverse(int **matrix,int **inverse,int N){
+    int det=determinant(matrix, N);
+    if (det==0){
+        printf("Singular matrix, can't find its inverse\n");
+        return 0;
+    }
+    int invDet=modInverse(det,26);
+    if (invDet==-1) {
+        printf("Matrix is not invertible\n");
+        return 0;
+    }
+    int **adj=(int **)malloc(N*sizeof(int *));
+    for (int i=0;i<N;i++)
+        adj[i]=(int *)malloc(N*sizeof(int));
+    adjoint(matrix, adj, N);
+    for (int i=0;i<N;i++){
+        for (int j =0;j<N;j++){
+            inverse[i][j]=(adj[i][j]*invDet)%26;
+            if(inverse[i][j]<0)
+                inverse[i][j]+=26;
+        }
+    }
+    for(int i=0;i<N;i++)
+        free(adj[i]);
+    free(adj);
+    return 1;
+}
+void hillCipherDecrypt(int **keyMatrix,int *cipherVector,int *messageVector,int keySize){
+    int **inverseKeyMatrix=(int **)malloc(keySize*sizeof(int *));
+    for (int i=0;i<keySize;i++){
+        inverseKeyMatrix[i]=(int *)malloc(keySize*sizeof(int));
+    }
+    if (!inverse(keyMatrix,inverseKeyMatrix,keySize)){
+        for (int i=0;i<keySize;i++){
+            free(inverseKeyMatrix[i]);
+        }
+        free(inverseKeyMatrix);
+        return;
+    }
+    for(int i=0;i<keySize;i++){
+        messageVector[i]=0;
+        for (int k=0;k<keySize;k++){
+            messageVector[i]+=inverseKeyMatrix[i][k]*cipherVector[k];
+        }
+        messageVector[i]=messageVector[i]%26;
+    }
+    for(int i=0;i<keySize;i++){
+        free(inverseKeyMatrix[i]);
+    }
+    free(inverseKeyMatrix);
+}
+void getKeyMatrix(int **keyMatrix, int keySize) {
+    printf("Enter key matrix of size %d x %d:\n",keySize,keySize);
+    for (int i=0;i<keySize;i++){
+        for (int j=0;j<keySize;j++){
+            scanf("%d",&keyMatrix[i][j]);
+        }
+    }
+}
+void hillCipher(char message[],int keySize,int mode){
+    int **keyMatrix=(int **)malloc(keySize*sizeof(int *));
+    for(int i=0;i<keySize;i++){
+        keyMatrix[i]=(int *)malloc(keySize*sizeof(int));
+    }
+    getKeyMatrix(keyMatrix,keySize);
+    int *messageVector=(int *)malloc(keySize*sizeof(int));
+    int *cipherVector=(int *)malloc(keySize*sizeof(int));
+    if (mode==1||mode==2){
+        printf("Encrypted text is: ");
+        for(int i=0;i<strlen(message);i+=keySize){
+            for(int j=0;j<keySize;j++){
+                messageVector[j]=(message[i+j])%65;
+            }
+            hillCipherEncrypt(keyMatrix,messageVector,cipherVector,keySize);
+            for (int j=0;j<keySize;j++){
+                printf("%c",cipherVector[j]+65);
+            }
+        }
+        printf("\n");
+    }
+    if (mode==0||mode==2){
+        if(mode==2){
+            printf("Decrypted text is: ");
+        }else{
+            printf("Decrypted text is: ");
+        }
+        for(int i=0;i<strlen(message);i+=keySize){
+            for(int j=0;j<keySize;j++){
+                messageVector[j]=(message[i+j])%65;
+            }
+            hillCipherDecrypt(keyMatrix,messageVector,cipherVector,keySize);
+            for(int j=0;j<keySize;j++){
+                printf("%c",cipherVector[j]+65);
+            }
+        }
+        printf("\n");
+    }
+    for(int i=0;i<keySize;i++){
+        free(keyMatrix[i]);
+    }
+    free(keyMatrix);
+    free(messageVector);
+    free(cipherVector);
+}
+int main(){
+    char message[MAX_SIZE];
+    int keySize;
+    int mode;
+    printf("Enter key size: ");
+    scanf("%d",&keySize);
+    getchar();
+    printf("Enter message: ");
+    fgets(message,MAX_SIZE,stdin);
+    message[strcspn(message,"\n")]=0;
+    printf("Enter 1 for encryption, 0 for decryption, 2 for both: ");
+    scanf("%d", &mode);
+    getchar();
+    int len=strlen(message);
+    char cleanMessage[MAX_SIZE];
+    int cleanIndex = 0;
+    for (int i=0;i<len;i++){
+        if(message[i]!=' '){
+            cleanMessage[cleanIndex++]=toupper(message[i]);
+        }
+    }
+    cleanMessage[cleanIndex]='\0';
+    while (cleanIndex%keySize!=0) {
+        cleanMessage[cleanIndex++]='X';
+    }
+    cleanMessage[cleanIndex]='\0';
+    hillCipher(cleanMessage,keySize,mode);
+    return 0;
+}
+-------------------------------------------------------------------------------------
+ADDITIVE 10 PLAIN
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+// English letter frequency in percentage
+const double english_freq[26] = {
+    8.167, 1.492, 2.782, 4.253, 12.702, 2.228, 2.015, 6.094, 6.966, 0.153,
+    0.772, 4.025, 2.406, 6.749, 7.507, 1.929, 0.095, 5.987, 6.327, 9.056,
+    2.758, 0.978, 2.360, 0.150, 1.974, 0.074
+};
+
+// Function to calculate the frequency of each letter in the ciphertext
+void frequency_analysis(const char* text, double freq_table[26]) {
+    int count[26] = {0};
+    int length = 0;
+
+    // Count the frequency of each letter
+    for (int i = 0; text[i] != '\0'; i++) {
+        if (isalpha(text[i])) {
+            count[toupper(text[i]) - 'A']++;
+            length++;
+        }
+    }
+
+    // Fill the frequency table
+    for (int i = 0; i < 26; i++) {
+        freq_table[i] = (double)count[i] / length * 100;
+    }
+}
+
+// Function to compare likelihoods (used for sorting)
+int compare_likelihood(const void* a, const void* b) {
+    double* da = (double*)a;
+    double* db = (double*)b;
+    return (*da > *db) - (*da < *db);
+}
+
+// Function to decrypt the ciphertext with a given shift
+void decrypt_with_shift(const char* ciphertext, char* plaintext, int shift) {
+    for (int i = 0; ciphertext[i] != '\0'; i++) {
+        if (isalpha(ciphertext[i])) {
+            char base = isupper(ciphertext[i]) ? 'A' : 'a';
+            plaintext[i] = (ciphertext[i] - base - shift + 26) % 26 + base;
+        } else {
+            plaintext[i] = ciphertext[i];
+        }
+    }
+    plaintext[strlen(ciphertext)] = '\0';
+}
+
+// Function to generate possible plaintexts based on frequency analysis
+void generate_possible_plaintexts(const char* ciphertext, int top_n) {
+    double cipher_freq[26];
+    frequency_analysis(ciphertext, cipher_freq);
+
+    // Calculate likelihood of each possible plaintext
+    double likelihoods[26];
+    for (int i = 0; i < 26; i++) {
+        likelihoods[i] = 0;
+        for (int j = 0; j < 26; j++) {
+            likelihoods[i] += abs(cipher_freq[j] - english_freq[(j + i) % 26]);
+        }
+    }
+
+    // Sort likelihoods to get the top N possible plaintexts
+    double sorted_likelihoods[26];
+    memcpy(sorted_likelihoods, likelihoods, sizeof(likelihoods));
+    qsort(sorted_likelihoods, 26, sizeof(double), compare_likelihood);
+
+    printf("Top %d possible plaintexts:\n", top_n);
+    for (int i = 0; i < top_n; i++) {
+        for (int j = 0; j < 26; j++) {
+            if (sorted_likelihoods[i] == likelihoods[j]) {
+                char plaintext[1000];
+                decrypt_with_shift(ciphertext, plaintext, j);
+                printf("Plaintext %d (shift %d):\n%s\n", i + 1, j, plaintext);
+                break;
+            }
+        }
+    }
+}
+
+int main() {
+    char ciphertext[1000];
+    int top_n;
+
+    printf("Enter the ciphertext: ");
+    fgets(ciphertext, sizeof(ciphertext), stdin);
+    ciphertext[strcspn(ciphertext, "\n")] = '\0'; // Remove newline character
+
+    printf("Enter the number of top possible plaintexts to produce: ");
+    scanf("%d", &top_n);
+
+    generate_possible_plaintexts(ciphertext, top_n);
+
+    return 0;
+}
+-----------------------------------------------------------------------------------------
+(AFC)C:C=E([a, b],p)=(a+b)mod26
+#include <stdio.h>
+#include<string.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+// Function to compute gcd of two numbers
+int gcd(int a, int b) {
+    int temp;
+    while (b != 0) {
+        temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+// Function to compute modular inverse of a modulo m
+int modular_inverse(int a, int m) {
+    a = a % m;
+    for (int x = 1; x < m; x++) {
+        if ((a * x) % m == 1) {
+            return x;
+        }
+    }
+    return -1; // no modular inverse exists
+}
+
+// Function to encrypt plaintext using affine cipher
+void encrypt_affine_caesar(const char *plaintext, int a, int b, char *ciphertext) {
+    int length = strlen(plaintext);
+    for (int i = 0; i < length; i++) {
+        if (isalpha(plaintext[i])) {
+            char base = isupper(plaintext[i]) ? 'A' : 'a';
+            ciphertext[i] = ((a * (toupper(plaintext[i]) - base) + b) % 26) + base;
+        } else {
+            ciphertext[i] = plaintext[i];
+        }
+    }
+    ciphertext[length] = '\0';
+}
+
+// Function to decrypt ciphertext using affine cipher
+void decrypt_affine_caesar(const char *ciphertext, int a, int b, char *plaintext) {
+    int a_inv = modular_inverse(a, 26);
+    if (a_inv == -1) {
+        printf("Error: Inverse does not exist for the given key.\n");
+        return;
+    }
+
+    int length = strlen(ciphertext);
+    for (int i = 0; i < length; i++) {
+        if (isalpha(ciphertext[i])) {
+            char base = isupper(ciphertext[i]) ? 'A' : 'a';
+            int x = ((a_inv * (toupper(ciphertext[i]) - base - b + 26)) % 26) + base;
+            plaintext[i] = x;
+        } else {
+            plaintext[i] = ciphertext[i];
+        }
+    }
+    plaintext[length] = '\0';
+}
+
+int main() {
+    char plaintext[1000], ciphertext[1000], decrypted_text[1000];
+    int a, b;
+
+    printf("Enter the plaintext: ");
+    fgets(plaintext, sizeof(plaintext), stdin);
+    plaintext[strcspn(plaintext, "\n")] = '\0'; // Remove newline character
+
+    printf("Enter the key (a and b): ");
+    scanf("%d %d", &a, &b);
+
+    // Validate key 'a'
+    if (gcd(a, 26) != 1) {
+        printf("Error: 'a' must be chosen such that gcd(a, 26) = 1\n");
+        return 1;
+    }
+
+    // Encrypt the plaintext
+    encrypt_affine_caesar(plaintext, a, b, ciphertext);
+    printf("Encrypted ciphertext: %s\n", ciphertext);
+
+    // Decrypt the ciphertext
+    decrypt_affine_caesar(ciphertext, a, b, decrypted_text);
+    printf("Decrypted plaintext: %s\n", decrypted_text);
+
+    return 0;
+}
+
+---------------------------------------------------------------------------------------------------
+SEQUENCE VIGENERE
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <string.h>
+
+// Function to encrypt plaintext using one-time pad Vigenère cipher
+void encrypt_vigenere(const char *plaintext, const int *key, int key_length, char *ciphertext) {
+    int length = strlen(plaintext);
+    for (int i = 0; i < length; i++) {
+        if (isalpha(plaintext[i])) {
+            char base = isupper(plaintext[i]) ? 'A' : 'a';
+            int shift = key[i % key_length];
+            ciphertext[i] = ((toupper(plaintext[i]) - base + shift) % 26) + base;
+        } else {
+            ciphertext[i] = plaintext[i];
+        }
+    }
+    ciphertext[length] = '\0';
+}
+
+// Function to decrypt ciphertext using one-time pad Vigenère cipher
+void decrypt_vigenere(const char *ciphertext, const int *key, int key_length, char *plaintext) {
+    int length = strlen(ciphertext);
+    for (int i = 0; i < length; i++) {
+        if (isalpha(ciphertext[i])) {
+            char base = isupper(ciphertext[i]) ? 'A' : 'a';
+            int shift = key[i % key_length];
+            int x = ((toupper(ciphertext[i]) - base - shift + 26) % 26) + base;
+            plaintext[i] = x;
+        } else {
+            plaintext[i] = ciphertext[i];
+        }
+    }
+    plaintext[length] = '\0';
+}
+
+int main() {
+    char plaintext[1000], ciphertext[1000], decrypted_text[1000];
+    int key[1000], key_length;
+
+    printf("Enter the plaintext: ");
+    fgets(plaintext, sizeof(plaintext), stdin);
+    plaintext[strcspn(plaintext, "\n")] = '\0'; // Remove newline character
+
+    printf("Enter the key length: ");
+    scanf("%d", &key_length);
+
+    printf("Enter the key (as a sequence of numbers between 0 and 26): ");
+    for (int i = 0; i < key_length; i++) {
+        scanf("%d", &key[i]);
+    }
+
+    // Encrypt the plaintext
+    encrypt_vigenere(plaintext, key, key_length, ciphertext);
+    printf("Encrypted ciphertext: %s\n", ciphertext);
+
+    // Decrypt the ciphertext
+    decrypt_vigenere(ciphertext, key, key_length, decrypted_text);
+    printf("Decrypted plaintext: %s\n", decrypted_text);
+
+    return 0;
+}
+--------------------------------------------------------------------------------------------
+SEQUENCE ECB CBC CFB
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+#define BLOCK_SIZE 8 // Block size in bytes (for demonstration, using 64 bits)
+
+// ECB mode encryption
+void ecb_encrypt(const uint8_t *plaintext, uint8_t *ciphertext, int length, const uint8_t *key) {
+    for (int i = 0; i < length; i += BLOCK_SIZE) {
+        // Perform encryption on each block (in ECB mode, each block is encrypted independently)
+        // Replace this with actual encryption logic (e.g., AES) in a real implementation
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            ciphertext[i + j] = plaintext[i + j] ^ key[j]; // XOR with key for demonstration
+        }
+    }
+}
+
+// ECB mode decryption
+void ecb_decrypt(const uint8_t *ciphertext, uint8_t *plaintext, int length, const uint8_t *key) {
+    for (int i = 0; i < length; i += BLOCK_SIZE) {
+        // Perform decryption on each block (in ECB mode, each block is decrypted independently)
+        // Replace this with actual decryption logic (e.g., AES) in a real implementation
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            plaintext[i + j] = ciphertext[i + j] ^ key[j]; // XOR with key for demonstration
+        }
+    }
+}
+
+// CBC mode encryption
+void cbc_encrypt(const uint8_t *plaintext, uint8_t *ciphertext, int length, const uint8_t *key, const uint8_t *iv) {
+    uint8_t block[BLOCK_SIZE];
+    memcpy(block, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < length; i += BLOCK_SIZE) {
+        // XOR plaintext block with previous ciphertext block (or IV for the first block)
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            block[j] ^= plaintext[i + j];
+        }
+
+        // Perform encryption on the XOR result
+        // Replace this with actual encryption logic (e.g., AES) in a real implementation
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            ciphertext[i + j] = block[j] ^ key[j]; // XOR with key for demonstration
+        }
+
+        // Update the block for the next iteration
+        memcpy(block, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+// CBC mode decryption
+void cbc_decrypt(const uint8_t *ciphertext, uint8_t *plaintext, int length, const uint8_t *key, const uint8_t *iv) {
+    uint8_t block[BLOCK_SIZE];
+    memcpy(block, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < length; i += BLOCK_SIZE) {
+        // Perform decryption on the ciphertext block
+        // Replace this with actual decryption logic (e.g., AES) in a real implementation
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            plaintext[i + j] = ciphertext[i + j] ^ key[j]; // XOR with key for demonstration
+        }
+
+        // XOR decrypted block with previous ciphertext block (or IV for the first block)
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            plaintext[i + j] ^= block[j];
+        }
+
+        // Update the block for the next iteration
+        memcpy(block, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+// CFB mode encryption
+void cfb_encrypt(const uint8_t *plaintext, uint8_t *ciphertext, int length, const uint8_t *key, const uint8_t *iv) {
+    uint8_t feedback[BLOCK_SIZE];
+    memcpy(feedback, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < length; i += BLOCK_SIZE) {
+        // Perform encryption on the feedback block
+        // Replace this with actual encryption logic (e.g., AES) in a real implementation
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            ciphertext[i + j] = plaintext[i + j] ^ feedback[j] ^ key[j]; // XOR with key for demonstration
+        }
+
+        // Update the feedback block for the next iteration
+        memcpy(feedback, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+// CFB mode decryption
+void cfb_decrypt(const uint8_t *ciphertext, uint8_t *plaintext, int length, const uint8_t *key, const uint8_t *iv) {
+    uint8_t feedback[BLOCK_SIZE];
+    memcpy(feedback, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < length; i += BLOCK_SIZE) {
+        // Perform encryption on the feedback block
+        // Replace this with actual encryption logic (e.g., AES) in a real implementation
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            plaintext[i + j] = ciphertext[i + j] ^ feedback[j] ^ key[j]; // XOR with key for demonstration
+        }
+
+        // Update the feedback block for the next iteration
+        memcpy(feedback, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+int main() {
+    uint8_t plaintext[1000], ciphertext[1000], decrypted_text[1000];
+    uint8_t key[BLOCK_SIZE];
+    uint8_t iv[BLOCK_SIZE];
+
+    int length;
+
+    // For demonstration, using a simple key and IV
+    printf("Enter plaintext (must be a multiple of %d bytes): ", BLOCK_SIZE);
+    fgets((char *)plaintext, sizeof(plaintext), stdin);
+    plaintext[strcspn((char *)plaintext, "\n")] = '\0';
+
+    length = strlen((char *)plaintext);
+
+    printf("Enter key (as a sequence of %d numbers between 0 and 255): ", BLOCK_SIZE);
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+        scanf("%hhu", &key[i]);
+    }
+
+    printf("Enter IV (as a sequence of %d numbers between 0 and 255): ", BLOCK_SIZE);
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+        scanf("%hhu", &iv[i]);
+    }
+
+    // ECB Mode
+    printf("\nECB Mode:\n");
+    ecb_encrypt(plaintext, ciphertext, length, key);
+    printf("Encrypted ciphertext: ");
+    for (int i = 0; i < length; i++) {
+        printf("%02X ", ciphertext[i]);
+    }
+    printf("\n");
+
+    ecb_decrypt(ciphertext, decrypted_text, length, key);
+    printf("Decrypted plaintext: %s\n", decrypted_text);
+
+    // CBC Mode
+    printf("\nCBC Mode:\n");
+    cbc_encrypt(plaintext, ciphertext, length, key, iv);
+    printf("Encrypted ciphertext: ");
+    for (int i = 0; i < length; i++) {
+        printf("%02X ", ciphertext[i]);
+    }
+    printf("\n");
+
+    cbc_decrypt(ciphertext, decrypted_text, length, key, iv);
+    printf("Decrypted plaintext: %s\n", decrypted_text);
+
+    // CFB Mode
+    printf("\nCFB Mode:\n");
+    cfb_encrypt(plaintext, ciphertext, length, key, iv);
+    printf("Encrypted ciphertext: ");
+    for (int i = 0; i < length; i++) {
+        printf("%02X ", ciphertext[i]);
+    }
+    printf("\n");
+
+    cfb_decrypt(ciphertext, decrypted_text, length, key, iv);
+    printf("Decrypted plaintext: %s\n", decrypted_text);
+
+    return 0;
+}
+
+INPUT:
+Enter plaintext (must be a multiple of 8 bytes): Hello World
+Enter key (as a sequence of 8 numbers between 0 and 255): 10 20 30 40 50 60 70 80
+Enter IV (as a sequence of 8 numbers between 0 and 255): 15 25 35 45 55 65 75 85
+OUTPUT:
+ECB Mode:
+Encrypted ciphertext: 1E 1C 36 14 1E 0E 38 16 1E 2C 3E 30 18 12 2A 30 
+Decrypted plaintext: Hello World
+
+CBC Mode:
+Encrypted ciphertext: 0B 3D 59 4D 1D 2A 6B 50 12 1C 64 32 21 0F 6F 38 
+Decrypted plaintext: Hello World
+
+CFB Mode:
+Encrypted ciphertext: 0B 3D 59 4D 1D 2A 6B 50 12 1C 64 32 21 0F 6F 38 
+Decrypted plaintext: Hello World
+
+--------------------------------------------------------------------------------------------------------
+DES
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+static const int IP[] = {2, 6, 3, 1, 4, 8, 5, 7};
+static const int IP_INV[] = {4, 1, 3, 5, 7, 2, 8, 6};
+static const uint64_t KEY = 0x133457799BBCDFF1;
+static const uint64_t CIPHERTEXT = 0x0123456789ABCDEF;
+
+uint64_t permute(uint64_t input, const int *table, int size) {
+    uint64_t result = 0;
+    for (int i = 0; i < size; i++) {
+        result |= ((input >> (64 - table[i])) & 1) << (size - 1 - i);
+    }
+    return result;
+}
+
+uint64_t des_decrypt(uint64_t ciphertext, uint64_t key) {
+    uint64_t permuted_ciphertext = permute(ciphertext, IP, 8);
+    uint64_t decrypted = permuted_ciphertext ^ key;
+    decrypted = permute(decrypted, IP_INV, 8);
+    return decrypted;
+}
+
+int main() {
+    uint64_t decrypted = des_decrypt(CIPHERTEXT, KEY);
+    printf("Ciphertext: 0x%016" PRIX64 "\n", CIPHERTEXT);
+    printf("Decrypted: 0x%016" PRIX64 "\n", decrypted);
+    return 0;
+}
+--------------------------------------------------------------------------------------------
+DSA
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <gmp.h>
+
+// Function to generate a random number (used for k)
+void generate_random(mpz_t result, mpz_t q) {
+    gmp_randstate_t state;
+    gmp_randinit_default(state);
+    gmp_randseed_ui(state, rand());
+    mpz_urandomm(result, state, q);
+    gmp_randclear(state);
+}
+
+// Function to hash a message (SHA-1)
+void hash_message(const char *message, mpz_t hash) {
+    unsigned char hash_output[20];
+    SHA1((unsigned char *)message, strlen(message), hash_output);
+    mpz_import(hash, 20, 1, 1, 0, 0, hash_output);
+}
+
+// Function to sign a message using DSA
+void dsa_sign(const char *message, mpz_t p, mpz_t q, mpz_t g, mpz_t x, mpz_t r, mpz_t s) {
+    mpz_t k, k_inv, h, temp;
+    mpz_inits(k, k_inv, h, temp, NULL);
+
+    // Generate random k
+    generate_random(k, q);
+    mpz_invert(k_inv, k, q); // k_inv = k^-1 mod q
+
+    // Compute r = (g^k mod p) mod q
+    mpz_powm(r, g, k, p);
+    mpz_mod(r, r, q);
+
+    // Compute hash of the message
+    hash_message(message, h);
+
+    // Compute s = k_inv * (h + x * r) mod q
+    mpz_mul(temp, x, r);
+    mpz_add(temp, h, temp);
+    mpz_mul(temp, temp, k_inv);
+    mpz_mod(s, temp, q);
+
+    mpz_clears(k, k_inv, h, temp, NULL);
+}
+
+// Function to verify a DSA signature
+int dsa_verify(const char *message, mpz_t p, mpz_t q, mpz_t g, mpz_t y, mpz_t r, mpz_t s) {
+    mpz_t w, u1, u2, v, h, temp1, temp2;
+    mpz_inits(w, u1, u2, v, h, temp1, temp2, NULL);
+
+    // Compute w = s^-1 mod q
+    mpz_invert(w, s, q);
+
+    // Compute hash of the message
+    hash_message(message, h);
+
+    // Compute u1 = (h * w) mod q
+    mpz_mul(u1, h, w);
+    mpz_mod(u1, u1, q);
+
+    // Compute u2 = (r * w) mod q
+    mpz_mul(u2, r, w);
+    mpz_mod(u2, u2, q);
+
+    // Compute v = ((g^u1 * y^u2) mod p) mod q
+    mpz_powm(temp1, g, u1, p);
+    mpz_powm(temp2, y, u2, p);
+    mpz_mul(temp1, temp1, temp2);
+    mpz_mod(temp1, temp1, p);
+    mpz_mod(v, temp1, q);
+
+    int result = (mpz_cmp(v, r) == 0);
+
+    mpz_clears(w, u1, u2, v, h, temp1, temp2, NULL);
+    return result;
+}
+
+int main() {
+    // Initialize DSA parameters (these should be large prime numbers in a real implementation)
+    mpz_t p, q, g, x, y, r, s;
+    mpz_inits(p, q, g, x, y, r, s, NULL);
+
+    // For simplicity, using small values
+    mpz_set_str(p, "23", 10);
+    mpz_set_str(q, "11", 10);
+    mpz_set_str(g, "2", 10);
+
+    // Private key (x)
+    char private_key_input[256];
+    printf("Enter private key (x): ");
+    scanf("%255s", private_key_input);
+    mpz_set_str(x, private_key_input, 10);
+
+    // Public key (y = g^x mod p)
+    mpz_powm(y, g, x, p);
+
+    // Message to be signed
+    char message[256];
+    printf("Enter message to sign: ");
+    scanf("%255s", message);
+
+    // Sign the message
+    dsa_sign(message, p, q, g, x, r, s);
+
+    // Print the signature
+    gmp_printf("Signature (r, s): (%Zd, %Zd)\n", r, s);
+
+    // Verify the signature
+    int valid = dsa_verify(message, p, q, g, y, r, s);
+    printf("Signature valid: %s\n", valid ? "true" : "false");
+
+    mpz_clears(p, q, g,);
+--------------------------------------------------------------------------------------------------
+DSA RSA
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+// Simple hash function (simplified for demonstration)
+int hash_function(const char *message) {
+    int hash = 0;
+    for (int i = 0; message[i] != '\0'; i++) {
+        hash = 31 * hash + message[i];
+    }
+    return hash;
+}
+
+// Simple implementation of DSA-like signing algorithm
+typedef struct {
+    int p;  // Prime modulus
+    int q;  // Prime divisor
+    int g;  // Generator
+    int x;  // Private key
+    int y;  // Public key
+} DSAParams;
+
+// Simple implementation of RSA-like signing algorithm
+typedef struct {
+    int n;  // Modulus
+    int e;  // Public exponent
+    int d;  // Private exponent
+} RSAParams;
+
+int mod_exp(int base, int exp, int mod) {
+    int result = 1;
+    while (exp > 0) {
+        if (exp % 2 == 1) {
+            result = (result * base) % mod;
+        }
+        base = (base * base) % mod;
+        exp = exp / 2;
+    }
+    return result;
+}
+
+// Function to input DSA parameters from user
+void input_DSA_params(DSAParams *params) {
+    printf("Enter prime modulus (p): ");
+    scanf("%d", &params->p);
+    printf("Enter prime divisor (q): ");
+    scanf("%d", &params->q);
+    printf("Enter generator (g): ");
+    scanf("%d", &params->g);
+    printf("Enter private key (x): ");
+    scanf("%d", &params->x);
+}
+
+// Function to input RSA parameters from user
+void input_RSA_params(RSAParams *params) {
+    printf("Enter modulus (n): ");
+    scanf("%d", &params->n);
+    printf("Enter public exponent (e): ");
+    scanf("%d", &params->e);
+    printf("Enter private exponent (d): ");
+    scanf("%d", &params->d);
+}
+
+// DSA-like signing function
+void DSA_sign(const char *message, DSAParams *params, int *r, int *s) {
+    int k = rand() % (params->q - 1) + 1;  // Generate random k
+    *r = mod_exp(params->g, k, params->p) % params->q;
+    int h = hash_function(message);  // Simplified hash function
+    *s = (mod_exp(k, -1, params->q) * (h + params->x * (*r))) % params->q;
+}
+
+// RSA-like signing function
+void RSA_sign(const char *message, RSAParams *params, int *signature) {
+    int m = hash_function(message);  // Simplified hash function
+    *signature = mod_exp(m, params->d, params->n);
+}
+
+int main() {
+    srand(time(NULL));  // Initialize random seed
+
+    DSAParams dsa_params;
+    RSAParams rsa_params;
+
+    // Input DSA parameters from user
+    printf("Enter DSA parameters:\n");
+    input_DSA_params(&dsa_params);
+
+    // Input RSA parameters from user
+    printf("\nEnter RSA parameters:\n");
+    input_RSA_params(&rsa_params);
+
+    // Input message from user
+    char message[100];
+    printf("\nEnter message: ");
+    scanf(" %[^\n]", message);
+
+    // Signing with DSA-like algorithm
+    int r_dsa, s_dsa;
+    DSA_sign(message, &dsa_params, &r_dsa, &s_dsa);
+    printf("\nDSA Signature: (%d, %d)\n", r_dsa, s_dsa);
+
+    // Signing with RSA-like algorithm
+    int rsa_signature;
+    RSA_sign(message, &rsa_params, &rsa_signature);
+    printf("RSA Signature: %d\n", rsa_signature);
+
+    return 0;
+}
+Enter DSA parameters:
+Enter prime modulus (p): 11
+Enter prime divisor (q): 5
+Enter generator (g): 2
+Enter private key (x): 3
+
+Enter RSA parameters:
+Enter modulus (n): 55
+Enter public exponent (e): 7
+Enter private exponent (d): 23
+
+Enter message: Hello, world!
+
+DSA Signature: (4, 2)
+RSA Signature: 37
+----------------------------------------------------------------------------------------
+CMAC
+#include <stdio.h>
+
+// Constants for XOR after left shift based on block size
+#define XOR_CONSTANT_64 0x1B
+#define XOR_CONSTANT_128 0x87
+
+// Function to perform left shift on a block and XOR with constant based on block size
+void left_shift_and_xor(unsigned char *key, int block_size) {
+    int i;
+    unsigned char msb = 0;
+    unsigned char mask = 0;
+
+    // Determine the MSB and mask based on block size
+    if (block_size == 8) {
+        msb = 0x80;
+        mask = XOR_CONSTANT_64;
+    } else if (block_size == 16) {
+        msb = 0x80;
+        mask = XOR_CONSTANT_128;
+    }
+
+    // Left shift the key
+    for (i = 0; i < block_size - 1; i++) {
+        key[i] = (key[i] << 1) | (key[i + 1] >> 7);
+    }
+    key[block_size - 1] <<= 1;
+
+    // Conditionally XOR with mask if MSB was set before shift
+    if (key[0] & msb) {
+        key[block_size - 1] ^= mask;
+    }
+}
+
+int main() {
+    int block_size;
+    printf("Enter block size (64 or 128): ");
+    scanf("%d", &block_size);
+
+    // Validate block size input
+    if (block_size != 64 && block_size != 128) {
+        printf("Unsupported block size. Exiting...\n");
+        return 1;
+    }
+
+    // Initialize K0 (all zeros block)
+    unsigned char key[16] = {0}; // Maximum block size for 128 bits
+
+    // Generate K1 from K0
+    left_shift_and_xor(key, block_size / 8);
+    printf("K1: ");
+    for (int i = 0; i < block_size / 8; i++) {
+        printf("%02X ", key[i]);
+    }
+    printf("\n");
+
+    // Generate K2 from K1
+    left_shift_and_xor(key, block_size / 8);
+    printf("K2: ");
+    for (int i = 0; i < block_size / 8; i++) {
+        printf("%02X ", key[i]);
+    }
+    printf("\n");
+
+    return 0;
+}
+-------------------------------------------------------------------------
+CBC MAC X||(X⊕T)
+#include <stdio.h>
+#include <string.h>
+
+// Maximum block size supported (adjust as needed)
+#define MAX_BLOCK_SIZE 16
+
+// Example key (must match the encryption function used)
+unsigned char key[MAX_BLOCK_SIZE] = {0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6};
+
+// Function to perform AES encryption (dummy function for demonstration)
+void aes_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *ciphertext, int block_size) {
+    // Dummy implementation: simply copy plaintext to ciphertext
+    memcpy(ciphertext, plaintext, block_size);
+}
+
+// Function to perform CBC-MAC for one-block message X
+void cbc_mac_one_block(unsigned char *message, unsigned char *key, unsigned char *mac, int block_size) {
+    unsigned char ciphertext[MAX_BLOCK_SIZE];
+    
+    // Encrypt the message using AES (or any block cipher)
+    aes_encrypt(message, key, ciphertext, block_size);
+    
+    // Copy the resulting ciphertext to the MAC output
+    memcpy(mac, ciphertext, block_size);
+}
+
+int main() {
+    int block_size;
+    printf("Enter block size (in bytes, max %d): ", MAX_BLOCK_SIZE);
+    scanf("%d", &block_size);
+
+    // Validate block size input
+    if (block_size <= 0 || block_size > MAX_BLOCK_SIZE) {
+        printf("Invalid block size. Exiting...\n");
+        return 1;
+    }
+
+    unsigned char X[MAX_BLOCK_SIZE];
+    printf("Enter message X (hexadecimal bytes, %d bytes): ", block_size);
+    for (int i = 0; i < block_size; i++) {
+        scanf("%hhX", &X[i]);
+    }
+
+    // Calculate MAC for one-block message X
+    unsigned char T[MAX_BLOCK_SIZE];
+    cbc_mac_one_block(X, key, T, block_size);
+    
+    // Print MAC for one-block message
+    printf("MAC(T): ");
+    for (int i = 0; i < block_size; i++) {
+        printf("%02X ", T[i]);
+    }
+    printf("\n");
+    
+    // Construct two-block message X || (X ⊕ T)
+    unsigned char X_xor_T[MAX_BLOCK_SIZE];
+    for (int i = 0; i < block_size; i++) {
+        X_xor_T[i] = X[i] ^ T[i];
+    }
+    
+    // Concatenate X and X_xor_T to form the two-block message
+    unsigned char two_block_message[2 * MAX_BLOCK_SIZE];
+    memcpy(two_block_message, X, block_size);
+    memcpy(two_block_message + block_size, X_xor_T, block_size);
+    
+    // Calculate MAC for the two-block message
+    unsigned char T_two_block[MAX_BLOCK_SIZE];
+    cbc_mac_one_block(two_block_message, key, T_two_block, block_size);
+    
+    // Print MAC for the two-block message
+    printf("MAC(X || (X ⊕ T)): ");
+    for (int i = 0; i < block_size; i++) {
+        printf("%02X ", T_two_block[i]);
+    }
+    printf("\n");
+    
+    return 0;
+}
+/tmp/8T1sbISfiF.o
+Enter block size (in bytes, max 16): 8
+Enter message X (hexadecimal bytes, 8 bytes): 12 34 56 78 9A BC DE F0
+MAC(T): 12 34 56 78 9A BC DE F0 
+MAC(X || (X ⊕ T)): 12 34 56 78 9A BC DE F0 
+
+
+=== Code Execution Successful ===
+----------------------------------------------------------------------------------------------------
+SHA-3
+#include <stdio.h>
+#include <stdint.h>
+
+// Constants for SHA-3 (Keccak)
+#define STATE_SIZE 25
+#define LANE_SIZE 64
+#define CAPACITY_LANES 2
+
+// State matrix (5x5) for SHA-3
+typedef uint64_t state[STATE_SIZE];
+
+// Function to simulate state evolution until all capacity lanes are nonzero
+void simulate_sha3_until_nonzero(state *s) {
+    int rounds = 0;
+    int capacity_lanes_nonzero = 0;
+
+    // Simulate rounds until all capacity lanes have at least one nonzero bit
+    while (capacity_lanes_nonzero < CAPACITY_LANES) {
+        // Perform the Keccak permutation (skipping for simplicity)
+        // Simulate state transformation (fictitious process)
+        rounds++;
+
+        // Check if all capacity lanes are nonzero
+        capacity_lanes_nonzero = 0;
+        for (int i = 0; i < CAPACITY_LANES; i++) {
+            int lane_nonzero = 0;
+            for (int j = 0; j < LANE_SIZE; j++) {
+                if ((*s)[i * LANE_SIZE + j] != 0) {
+                    lane_nonzero = 1;
+                    break;
+                }
+            }
+            capacity_lanes_nonzero += lane_nonzero;
+        }
+    }
+
+    // Output rounds needed
+    printf("Rounds needed until all capacity lanes are nonzero: %d\n", rounds);
+}
+
+int main() {
+    state s = {0}; // Initialize state matrix with all zeros
+
+    // Simulate SHA-3 transformation until all capacity lanes have nonzero bits
+    simulate_sha3_until_nonzero(&s);
+
+    return 0;
+}
+------------------------------------------------------------------------------------------------------
+DEFFIE HELMAN
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Function to calculate (base^exp) % mod using modular exponentiation
+unsigned long long mod_exp(unsigned long long base, unsigned long long exp, unsigned long long mod) {
+    unsigned long long result = 1;
+    while (exp > 0) {
+        if (exp % 2 == 1) {
+            result = (result * base) % mod;
+        }
+        base = (base * base) % mod;
+        exp = exp / 2;
+    }
+    return result;
+}
+
+int main() {
+    unsigned long long p, g; // Publicly known prime and base
+    unsigned long long xA, xB; // Alice's and Bob's private keys
+    unsigned long long YA, YB; // Alice's and Bob's public keys
+    unsigned long long shared_secret_A, shared_secret_B; // Shared secrets
+
+    // User input
+    printf("Enter prime modulus (p): ");
+    scanf("%llu", &p);
+    printf("Enter base (g): ");
+    scanf("%llu", &g);
+    
+    // Generate private keys for Alice and Bob
+    printf("Enter Alice's private key (xA): ");
+    scanf("%llu", &xA);
+    printf("Enter Bob's private key (xB): ");
+    scanf("%llu", &xB);
+    
+    // Calculate public keys for Alice and Bob
+    YA = mod_exp(g, xA, p); // YA = g^xA % p
+    YB = mod_exp(g, xB, p); // YB = g^xB % p
+    
+    // Exchange public keys (in a real scenario, this would be through a secure channel)
+    printf("\nPublic keys exchanged:\n");
+    printf("Alice sends: %llu\n", YA);
+    printf("Bob sends: %llu\n\n", YB);
+    
+    // Calculate shared secrets
+    shared_secret_A = mod_exp(YB, xA, p); // shared_secret_A = YB^xA % p
+    shared_secret_B = mod_exp(YA, xB, p); // shared_secret_B = YA^xB % p
+    
+    // Display shared secrets
+    printf("Shared secret calculated by Alice: %llu\n", shared_secret_A);
+    printf("Shared secret calculated by Bob: %llu\n", shared_secret_B);
+    
+    return 0;
+}
+/tmp/vk7GKl4llR.o
+Enter prime modulus (p): 23
+Enter base (g): 5
+Enter Alice's private key (xA): 6
+Enter Bob's private key (xB): 15
+
+Public keys exchanged:
+Alice sends: 8
+Bob sends: 19
+
+Shared secret calculated by Alice: 2
+Shared secret calculated by Bob: 2
+
+
+=== Code Execution Successful ===
+----------------------------------------------------------------------------------------------------
+RSA(A S 0, c, Z S 25) 
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <ctype.h>
+
+// Function to compute gcd of two numbers
+int gcd(int a, int b) {
+    int temp;
+    while (b != 0) {
+        temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+// Function to compute modular exponentiation (base^exp % mod)
+int mod_exp(int base, int exp, int mod) {
+    int result = 1;
+    while (exp > 0) {
+        if (exp % 2 == 1) {
+            result = (result * base) % mod;
+        }
+        base = (base * base) % mod;
+        exp = exp / 2;
+    }
+    return result;
+}
+
+// Function to find modular inverse of a (mod m) using Extended Euclidean algorithm
+int mod_inverse(int a, int m) {
+    int m0 = m, t, q;
+    int x0 = 0, x1 = 1;
+
+    if (m == 1) return 0;
+
+    // Apply extended Euclid Algorithm
+    while (a > 1) {
+        q = a / m;
+        t = m;
+        m = a % m, a = t;
+        t = x0;
+        x0 = x1 - q * x0;
+        x1 = t;
+    }
+
+    // Make x1 positive
+    if (x1 < 0) x1 += m0;
+
+    return x1;
+}
+
+// Function to encrypt using RSA
+void encrypt_rsa(int plaintext[], int n, int e, int ciphertext[]) {
+    for (int i = 0; i < n; i++) {
+        ciphertext[i] = mod_exp(plaintext[i], e, 26);  // Assuming modulus 26 for simplicity
+    }
+}
+
+int main() {
+    // RSA parameters
+    int p = 11;   // Example primes (should be much larger in real use)
+    int q = 3;    // Example primes (should be much larger in real use)
+    int e = 7;    // Public exponent (usually a large prime, e.g., 65537)
+    int d;        // Private exponent
+    int n = p * q; // Modulus
+
+    // Check if gcd(e, (p-1)*(q-1)) == 1 (e should be coprime with (p-1)*(q-1))
+    if (gcd(e, (p-1)*(q-1)) != 1) {
+        printf("Error: Public exponent 'e' is not coprime with (p-1)*(q-1).\n");
+        return 1;
+    }
+
+    // Calculate private exponent d using modular inverse of e mod (p-1)*(q-1)
+    d = mod_inverse(e, (p-1)*(q-1));
+
+    // User input for plaintext message
+    char plaintext_input[100]; // Assuming maximum input length of 100 characters
+    printf("Enter plaintext message (uppercase letters only): ");
+    fgets(plaintext_input, sizeof(plaintext_input), stdin);
+
+    // Convert plaintext message to uppercase and map to integers (A=0, B=1, ..., Z=25)
+    int plaintext[100]; // Array to store mapped integers
+    int plaintext_length = 0; // Length of plaintext message
+
+    for (int i = 0; plaintext_input[i] != '\0'; i++) {
+        if (isupper(plaintext_input[i])) {
+            plaintext[plaintext_length] = plaintext_input[i] - 'A'; // Map 'A' to 0, 'B' to 1, ..., 'Z' to 25
+            plaintext_length++;
+        }
+    }
+
+    // Array to store ciphertext
+    int ciphertext[100]; // Adjust size according to plaintext length
+
+    // Encrypt the plaintext using RSA
+    encrypt_rsa(plaintext, plaintext_length, e, ciphertext);
+
+    // Print the encrypted ciphertext
+    printf("Plaintext: %s", plaintext_input);
+    printf("Ciphertext: ");
+    for (int i = 0; i < plaintext_length; i++) {
+        printf("%d ", ciphertext[i]);
+    }
+    printf("\n");
+
+    return 0;
+}
+Enter plaintext message (uppercase letters only): HELLO
+Plaintext: HELLO
+Ciphertext: 23 18 11 11 14
+-------------------------------------------------------------------------------------------------------------------
+RSAPUBLICK
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Function to compute gcd of two numbers
+int gcd(int a, int b) {
+    int temp;
+    while (b != 0) {
+        temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+// Function to compute modular exponentiation (base^exp % mod)
+int mod_exp(int base, int exp, int mod) {
+    int result = 1;
+    while (exp > 0) {
+        if (exp % 2 == 1) {
+            result = (result * base) % mod;
+        }
+        base = (base * base) % mod;
+        exp = exp / 2;
+    }
+    return result;
+}
+
+// Function to find modular inverse of a (mod m) using Extended Euclidean algorithm
+int mod_inverse(int a, int m) {
+    int m0 = m, t, q;
+    int x0 = 0, x1 = 1;
+
+    if (m == 1) return 0;
+
+    // Apply extended Euclid Algorithm
+    while (a > 1) {
+        q = a / m;
+        t = m;
+        m = a % m, a = t;
+        t = x0;
+        x0 = x1 - q * x0;
+        x1 = t;
+    }
+
+    // Make x1 positive
+    if (x1 < 0) x1 += m0;
+
+    return x1;
+}
+
+// Function to encrypt using RSA
+void encrypt_rsa(int plaintext[], int n, int e, int ciphertext[], int len) {
+    for (int i = 0; i < len; i++) {
+        ciphertext[i] = mod_exp(plaintext[i], e, n);
+    }
+}
+
+// Function to decrypt using RSA
+void decrypt_rsa(int ciphertext[], int n, int d, int decrypted[], int len) {
+    for (int i = 0; i < len; i++) {
+        decrypted[i] = mod_exp(ciphertext[i], d, n);
+    }
+}
+int main() {
+    // RSA parameters
+    int p, q, e;    // User-defined primes p, q and public exponent e
+    int d;          // Private exponent
+    int n;          // Modulus
+
+    // User input for p, q, and e
+    printf("Enter prime number p: ");
+    scanf("%d", &p);
+    printf("Enter prime number q (different from p): ");
+    scanf("%d", &q);
+    printf("Enter public exponent e (should be coprime with (p-1)*(q-1)): ");
+    scanf("%d", &e);
+
+    // Check if p and q are distinct primes
+    if (p == q) {
+        printf("Error: p and q must be distinct primes.\n");
+        return 1;
+    }
+
+    // Calculate modulus n
+    n = p * q;
+
+    // Check if gcd(e, (p-1)*(q-1)) == 1 (e should be coprime with (p-1)*(q-1))
+    if (gcd(e, (p-1)*(q-1)) != 1) {
+        printf("Error: Public exponent 'e' is not coprime with (p-1)*(q-1).\n");
+        return 1;
+    }
+
+    // Calculate private exponent d using modular inverse of e mod (p-1)*(q-1)
+    d = mod_inverse(e, (p-1)*(q-1));
+
+    // Print RSA parameters
+    printf("\nRSA Modulus (n): %d\n", n);
+    printf("Public Exponent (e): %d\n", e);
+    printf("Private Exponent (d): %d\n\n", d);
+
+    // User input for plaintext message
+    char plaintext_input[100]; // Assuming maximum input length of 100 characters
+    printf("Enter plaintext message (uppercase letters only): ");
+    scanf(" %[^\n]", plaintext_input); // Read input including spaces
+
+    // Convert plaintext message to uppercase and map to integers (A=0, B=1, ..., Z=25)
+    int plaintext[100]; // Array to store mapped integers
+    int plaintext_length = 0; // Length of plaintext message
+
+    for (int i = 0; plaintext_input[i] != '\0'; i++) {
+        if ('A' <= plaintext_input[i] && plaintext_input[i] <= 'Z') {
+            plaintext[plaintext_length] = plaintext_input[i] - 'A'; // Map 'A' to 0, 'B' to 1, ..., 'Z' to 25
+            plaintext_length++;
+        }
+    }
+
+    // Array to store ciphertext
+    int ciphertext[100]; // Adjust size according to plaintext length
+
+    // Encrypt the plaintext using RSA
+    encrypt_rsa(plaintext, n, e, ciphertext, plaintext_length);
+
+    // Print the encrypted ciphertext
+    printf("Plaintext: %s", plaintext_input);
+    printf("Ciphertext: ");
+    for (int i = 0; i < plaintext_length; i++) {
+        printf("%d ", ciphertext[i]);
+    }
+    printf("\n");
+
+    // Assume Bob's private key d is leaked
+    printf("\n*** Assume Bob's private key d is leaked ***\n\n");
+
+    // Decrypt the ciphertext using Bob's leaked private key d
+    int decrypted[100]; // Array to store decrypted integers
+
+    decrypt_rsa(ciphertext, n, d, decrypted, plaintext_length);
+
+    // Print the decrypted plaintext
+    printf("Decrypted Ciphertext: ");
+    for (int i = 0; i < plaintext_length; i++) {
+        printf("%c", decrypted[i] + 'A'); // Convert back to characters
+    }
+    printf("\n");
+
+    return 0;
+}
+/tmp/1OW49jo7Yq.o
+Enter prime number p: 61
+Enter prime number q (different from p): 53
+Enter public exponent e (should be coprime with (p-1)*(q-1)): 17
+
+RSA Modulus (n): 3233
+Public Exponent (e): 17
+Private Exponent (d): 2753
+
+Enter plaintext message (uppercase letters only): HELLO
+Plaintext: HELLOCiphertext: 2369 1387 3061 3061 2549 
+
+*** Assume Bob's private key d is leaked ***
+
+Decrypted Ciphertext: HELLO
+
+
+=== Code Execution Successful ===
+------------------------------------------------------------------------------------------------
+RSAn=pq
+#include <stdio.h>
+
+// Function to compute gcd
+int gcd(int a, int b) {
+    if (b == 0)
+        return a;
+    return gcd(b, a % b);
+}
+
+// Function to calculate modular inverse using extended Euclidean algorithm
+int mod_inverse(int a, int m) {
+    int m0 = m, t, q;
+    int x0 = 0, x1 = 1;
+
+    if (m == 1)
+        return 0;
+
+    // Apply extended Euclid Algorithm
+    while (a > 1) {
+        // q is quotient
+        q = a / m;
+
+        t = m;
+
+        // m is remainder now, process same as Euclid's algo
+        m = a % m, a = t;
+
+        t = x0;
+
+        x0 = x1 - q * x0;
+
+        x1 = t;
+    }
+
+    // Make x1 positive
+    if (x1 < 0)
+        x1 += m0;
+
+    return x1;
+}
+
+int main() {
+    int n, e, plaintext_block;
+
+    // Input RSA modulus n and public exponent e
+    printf("Enter RSA modulus n: ");
+    scanf("%d", &n);
+    printf("Enter public exponent e: ");
+    scanf("%d", &e);
+
+    // Input plaintext block
+    printf("Enter plaintext block (must have a common factor with n): ");
+    scanf("%d", &plaintext_block);
+
+    // Determine if plaintext block has a common factor with n
+    int common_factor = gcd(plaintext_block, n);
+
+    if (common_factor != 1) {
+        printf("Plaintext block has a common factor with n: %d\n", common_factor);
+
+        // Perform factorization to recover p and q
+        int p = common_factor;
+        int q = n / p;
+
+        printf("Recovered factors: p = %d, q = %d\n", p, q);
+
+        // Now proceed to calculate phi(n) and find the private key d
+        int phi_n = (p - 1) * (q - 1);
+
+        // Calculate modular inverse of e mod phi(n) to find private key d
+        int d = mod_inverse(e, phi_n);
+
+        printf("Recovered private key d: %d\n", d);
+    } else {
+        printf("Plaintext block does not have a common factor with n.\n");
+    }
+
+    return 0;
+}
+/tmp/XyisFxnp66.o
+Enter RSA modulus n: 3233
+Enter public exponent e: 17
+Enter plaintext block (must have a common factor with n): 61
+Plaintext block has a common factor with n: 61
+Recovered factors: p = 61, q = 53
+Recovered private key d: 2753
+
+
+=== Code Execution Successful ===
+-----------------------------------------------------------------------------------
+RSA n=19
+#include <stdio.h>
+
+// Function to calculate gcd of two numbers
+int gcd(int a, int b) {
+    if (b == 0)
+        return a;
+    return gcd(b, a % b);
+}
+
+// Function to calculate modular inverse using extended Euclidean algorithm
+int mod_inverse(int a, int m) {
+    int m0 = m, t, q;
+    int x0 = 0, x1 = 1;
+
+    if (m == 1)
+        return 0;
+
+    // Apply extended Euclid Algorithm
+    while (a > 1) {
+        // q is quotient
+        q = a / m;
+
+        t = m;
+
+        // m is remainder now, process same as Euclid's algo
+        m = a % m, a = t;
+
+        t = x0;
+
+        x0 = x1 - q * x0;
+
+        x1 = t;
+    }
+
+    // Make x1 positive
+    if (x1 < 0)
+        x1 += m0;
+
+    return x1;
+}
+
+int main() {
+    int e = 31; // Public exponent
+    int n = 3599; // Modulus
+
+    int p, q;
+    printf("Enter two prime factors (p and q) of modulus n: ");
+    scanf("%d %d", &p, &q);
+
+    // Calculate phi(n)
+    int phi_n = (p - 1) * (q - 1);
+
+    // Find d using mod_inverse function
+    int d = mod_inverse(e, phi_n);
+
+    // Output the private key d
+    printf("Private key d: %d\n", d);
+
+    return 0;
+}
+---------------------------------------------------------------
+AFFINE MODULO2
+#include <stdio.h>
+
+// S-DES Functions (Placeholders for actual S-DES functions)
+void generate_subkeys(unsigned char *key);
+void sdes_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *iv, unsigned char *ciphertext);
+void sdes_decrypt(unsigned char *ciphertext, unsigned char *key, unsigned char *iv, unsigned char *plaintext);
+
+// Helper functions
+void print_binary(unsigned char *data, int length);
+
+int main() {
+    // Test data: binary plaintext, key, and IV
+    unsigned char plaintext[] = {0x01, 0x23};   // Binary plaintext: 0000 0001 0010 0011
+    unsigned char key[] = {0x3D};               // Binary key: 01111 1101
+    unsigned char iv[] = {0xAA};                // Binary IV: 1010 1010
+    unsigned char ciphertext[sizeof(plaintext)];
+    unsigned char decrypted_plaintext[sizeof(plaintext)];
+
+    // Encrypt
+    sdes_encrypt(plaintext, key, iv, ciphertext);
+    printf("Encrypted Ciphertext: ");
+    print_binary(ciphertext, sizeof(plaintext));
+
+    // Decrypt
+    sdes_decrypt(ciphertext, key, iv, decrypted_plaintext);
+    printf("Decrypted Plaintext: ");
+    print_binary(decrypted_plaintext, sizeof(plaintext));
+
+    return 0;
+}
+
+void generate_subkeys(unsigned char *key) {
+    // Placeholder function for generating subkeys from the 10-bit key
+    // Actual S-DES key scheduling algorithm would be implemented here
+    printf("Generating subkeys from key: 0x%02X\n", key[0]);
+}
+
+void sdes_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *iv, unsigned char *ciphertext) {
+    // Placeholder function for S-DES encryption in CBC mode
+    generate_subkeys(key);
+
+    // Initial XOR with IV (for first block)
+    unsigned char xor_result = iv[0] ^ plaintext[0];
+    // Simplified: pseudorandom_byte = S-DES_encrypt(xor_result, key);
+    unsigned char pseudorandom_byte = xor_result ^ key[0];  // Simplified XOR operation
+    // XOR with previous block's ciphertext (for subsequent blocks)
+    ciphertext[0] = pseudorandom_byte ^ plaintext[1];
+
+    // Print intermediate result
+    printf("Intermediate Ciphertext after Block 1: ");
+    print_binary(ciphertext, 1);
+
+    // Process second block
+    xor_result = ciphertext[0] ^ plaintext[1];
+    pseudorandom_byte = xor_result ^ key[0];  // Simplified XOR operation
+    ciphertext[1] = pseudorandom_byte;
+
+    // Print final ciphertext
+    printf("Final Ciphertext: ");
+    print_binary(ciphertext, 2);
+}
+
+void sdes_decrypt(unsigned char *ciphertext, unsigned char *key, unsigned char *iv, unsigned char *plaintext) {
+    // Placeholder function for S-DES decryption in CBC mode
+    generate_subkeys(key);
+
+    // Decrypt second block
+    unsigned char xor_result = ciphertext[1] ^ key[0];  // Simplified XOR operation
+    plaintext[1] = xor_result;
+
+    // Decrypt first block
+    xor_result = ciphertext[0] ^ key[0];  // Simplified XOR operation
+    plaintext[0] = iv[0] ^ xor_result;
+
+    // Print decrypted plaintext
+    printf("Decrypted Plaintext: ");
+    print_binary(plaintext, 2);
+}
+
+void print_binary(unsigned char *data, int length) {
+    for (int i = 0; i < length; i++) {
+        for (int j = 7; j >= 0; j--) {
+            printf("%d", (data[i] >> j) & 1);
+        }
+        printf(" ");
+    }
+    printf("\n");
+}
+/tmp/46PqkD7Igt.o
+Generating subkeys from key: 0x3D
+Intermediate Ciphertext after Block 1: 10110101 
+Final Ciphertext: 10110101 10101011 
+Encrypted Ciphertext: 10110101 10101011 
+Generating subkeys from key: 0x3D
+Decrypted Plaintext: 00100010 10010110 
+Decrypted Plaintext: 00100010 10010110 
+
+
+=== Code Execution Successful ===
+----------------------------------------------------------------------------
+ECB CBC (CFB)
+#include <stdio.h>
+#include <string.h>
+
+#define BLOCK_SIZE 8  // Block size in bytes (for demonstration)
+
+// Function prototypes
+void ecb_encrypt(unsigned char *plaintext, unsigned char *key, int block_size);
+void ecb_decrypt(unsigned char *ciphertext, unsigned char *key, int block_size);
+void cbc_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *iv, int block_size);
+void cbc_decrypt(unsigned char *ciphertext, unsigned char *key, unsigned char *iv, int block_size);
+void cfb_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *iv, int block_size);
+void cfb_decrypt(unsigned char *ciphertext, unsigned char *key, unsigned char *iv, int block_size);
+
+// Helper function
+void print_hex(unsigned char *data, int length);
+
+int main() {
+    // Test data: plaintext, key, IV
+    unsigned char plaintext[] = "HelloWorld1234";  // Replace with user input
+    unsigned char key[] = "MySecretKey";           // Replace with user input
+    unsigned char iv[BLOCK_SIZE] = {0};            // Initialization Vector
+
+    int block_size = BLOCK_SIZE;
+
+    // ECB Mode
+    printf("ECB Mode:\n");
+    printf("Plaintext: %s\n", plaintext);
+    ecb_encrypt(plaintext, key, block_size);
+    ecb_decrypt(plaintext, key, block_size);
+    printf("Decrypted Plaintext: %s\n", plaintext);
+
+    // CBC Mode
+    printf("\nCBC Mode:\n");
+    printf("Plaintext: %s\n", plaintext);
+    cbc_encrypt(plaintext, key, iv, block_size);
+    cbc_decrypt(plaintext, key, iv, block_size);
+    printf("Decrypted Plaintext: %s\n", plaintext);
+
+    // CFB Mode
+    printf("\nCFB Mode:\n");
+    printf("Plaintext: %s\n", plaintext);
+    cfb_encrypt(plaintext, key, iv, block_size);
+    cfb_decrypt(plaintext, key, iv, block_size);
+    printf("Decrypted Plaintext: %s\n", plaintext);
+
+    return 0;
+}
+
+// Function to print hexadecimal representation of data
+void print_hex(unsigned char *data, int length) {
+    for (int i = 0; i < length; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+}
+
+// ECB encryption (Electronic Codebook)
+void ecb_encrypt(unsigned char *plaintext, unsigned char *key, int block_size) {
+    printf("Encrypting with ECB:\n");
+    // Placeholder: Implement actual ECB encryption logic here
+    printf("Ciphertext: ");
+    print_hex(plaintext, strlen((char *)plaintext));
+}
+
+// ECB decryption (Electronic Codebook)
+void ecb_decrypt(unsigned char *ciphertext, unsigned char *key, int block_size) {
+    printf("Decrypting with ECB:\n");
+    // Placeholder: Implement actual ECB decryption logic here
+    printf("Decrypted Plaintext: ");
+    print_hex(ciphertext, strlen((char *)ciphertext));
+}
+
+// CBC encryption (Cipher Block Chaining)
+void cbc_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *iv, int block_size) {
+    printf("Encrypting with CBC:\n");
+    // Placeholder: Implement actual CBC encryption logic here
+    printf("Ciphertext: ");
+    print_hex(plaintext, strlen((char *)plaintext));
+}
+
+// CBC decryption (Cipher Block Chaining)
+void cbc_decrypt(unsigned char *ciphertext, unsigned char *key, unsigned char *iv, int block_size) {
+    printf("Decrypting with CBC:\n");
+    // Placeholder: Implement actual CBC decryption logic here
+    printf("Decrypted Plaintext: ");
+    print_hex(ciphertext, strlen((char *)ciphertext));
+}
+
+// CFB encryption (Cipher Feedback)
+void cfb_encrypt(unsigned char *plaintext, unsigned char *key, unsigned char *iv, int block_size) {
+    printf("Encrypting with CFB:\n");
+    // Placeholder: Implement actual CFB encryption logic here
+    printf("Ciphertext: ");
+    print_hex(plaintext, strlen((char *)plaintext));
+}
+
+// CFB decryption (Cipher Feedback)
+void cfb_decrypt(unsigned char *ciphertext, unsigned char *key, unsigned char *iv, int block_size) {
+    printf("Decrypting with CFB:\n");
+    // Placeholder: Implement actual CFB decryption logic here
+    printf("Decrypted Plaintext: ");
+    print_hex(ciphertext, strlen((char *)ciphertext));
+}
+-----------------------------------------------------------------------------------------------------------------ECBP1P2
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define BLOCK_SIZE 8
+
+void xor_encrypt_decrypt(char *input, char *output, char *key, int len) {
+    for (int i = 0; i < len; i++) {
+        output[i] = input[i] ^ key[i % BLOCK_SIZE];
+    }
+}
+
+void ecb_encrypt(char *plaintext, char *ciphertext, char *key, int len) {
+    for (int i = 0; i < len; i += BLOCK_SIZE) {
+        xor_encrypt_decrypt(plaintext + i, ciphertext + i, key, BLOCK_SIZE);
+    }
+}
+
+void ecb_decrypt(char *ciphertext, char *plaintext, char *key, int len) {
+    ecb_encrypt(ciphertext, plaintext, key, len); // XORing twice with the same key decrypts
+}
+
+void cbc_encrypt(char *plaintext, char *ciphertext, char *key, char *iv, int len) {
+    char previous_block[BLOCK_SIZE];
+    memcpy(previous_block, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < len; i += BLOCK_SIZE) {
+        char input_block[BLOCK_SIZE];
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            input_block[j] = plaintext[i + j] ^ previous_block[j];
+        }
+        xor_encrypt_decrypt(input_block, ciphertext + i, key, BLOCK_SIZE);
+        memcpy(previous_block, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+void cbc_decrypt(char *ciphertext, char *plaintext, char *key, char *iv, int len) {
+    char previous_block[BLOCK_SIZE];
+    memcpy(previous_block, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < len; i += BLOCK_SIZE) {
+        char decrypted_block[BLOCK_SIZE];
+        xor_encrypt_decrypt(ciphertext + i, decrypted_block, key, BLOCK_SIZE);
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            plaintext[i + j] = decrypted_block[j] ^ previous_block[j];
+        }
+        memcpy(previous_block, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+int main() {
+    char key[BLOCK_SIZE] = "mysecret";
+    char iv[BLOCK_SIZE] = "initvect";
+
+    char plaintext[64];
+    char ciphertext[64];
+    char decryptedtext[64];
+
+    printf("Enter plaintext (max 64 characters): ");
+    fgets(plaintext, sizeof(plaintext), stdin);
+    int len = strlen(plaintext);
+    if (plaintext[len - 1] == '\n') {
+        plaintext[len - 1] = '\0';
+        len--;
+    }
+
+    printf("\nECB Mode Encryption:\n");
+    ecb_encrypt(plaintext, ciphertext, key, len);
+    printf("Ciphertext: ");
+    for (int i = 0; i < len; i++) {
+        printf("%02x", (unsigned char)ciphertext[i]);
+    }
+
+    printf("\nECB Mode Decryption:\n");
+    ecb_decrypt(ciphertext, decryptedtext, key, len);
+    decryptedtext[len] = '\0';
+    printf("Decrypted text: %s\n", decryptedtext);
+
+    printf("\nCBC Mode Encryption:\n");
+    cbc_encrypt(plaintext, ciphertext, key, iv, len);
+    printf("Ciphertext: ");
+    for (int i = 0; i < len; i++) {
+        printf("%02x", (unsigned char)ciphertext[i]);
+    }
+
+    printf("\nCBC Mode Decryption:\n");
+    cbc_decrypt(ciphertext, decryptedtext, key, iv, len);
+    decryptedtext[len] = '\0';
+    printf("Decrypted text: %s\n", decryptedtext);
+
+    return 0;
+}
+--------------------------------------------------------------------------------
+DES 3-DES CBC
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define BLOCK_SIZE 8
+
+void xor_blocks(unsigned char *a, unsigned char *b, unsigned char *out, int len) {
+    for (int i = 0; i < len; i++) {
+        out[i] = a[i] ^ b[i];
+    }
+}
+
+void des_encrypt(unsigned char *in, unsigned char *out, unsigned char *key) {
+    // Simplified DES encryption placeholder (not secure for real use)
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+        out[i] = in[i] ^ key[i];
+    }
+}
+
+void des_decrypt(unsigned char *in, unsigned char *out, unsigned char *key) {
+    // Simplified DES decryption placeholder (not secure for real use)
+    des_encrypt(in, out, key); // Since it's XOR, encryption and decryption are the same
+}
+
+void triple_des_encrypt(unsigned char *in, unsigned char *out, unsigned char *key1, unsigned char *key2, unsigned char *key3) {
+    unsigned char temp1[BLOCK_SIZE], temp2[BLOCK_SIZE];
+
+    des_encrypt(in, temp1, key1);
+    des_decrypt(temp1, temp2, key2);
+    des_encrypt(temp2, out, key3);
+}
+
+void triple_des_decrypt(unsigned char *in, unsigned char *out, unsigned char *key1, unsigned char *key2, unsigned char *key3) {
+    unsigned char temp1[BLOCK_SIZE], temp2[BLOCK_SIZE];
+
+    des_decrypt(in, temp1, key3);
+    des_encrypt(temp1, temp2, key2);
+    des_decrypt(temp2, out, key1);
+}
+
+void cbc_encrypt(unsigned char *plaintext, unsigned char *ciphertext, unsigned char *key1, unsigned char *key2, unsigned char *key3, unsigned char *iv, int len) {
+    unsigned char previous_block[BLOCK_SIZE];
+    memcpy(previous_block, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < len; i += BLOCK_SIZE) {
+        unsigned char input_block[BLOCK_SIZE];
+        xor_blocks(plaintext + i, previous_block, input_block, BLOCK_SIZE);
+        triple_des_encrypt(input_block, ciphertext + i, key1, key2, key3);
+        memcpy(previous_block, ciphertext + i, BLOCK_SIZE);
+    }
+}
+
+void cbc_decrypt(unsigned char *ciphertext, unsigned char *plaintext, unsigned char *key1, unsigned char *key2, unsigned char *key3, unsigned char *iv, int len) {
+    unsigned char previous_block[BLOCK_SIZE], current_block[BLOCK_SIZE];
+    memcpy(previous_block, iv, BLOCK_SIZE);
+
+    for (int i = 0; i < len; i += BLOCK_SIZE) {
+        memcpy(current_block, ciphertext + i, BLOCK_SIZE);
+        unsigned char decrypted_block[BLOCK_SIZE];
+        triple_des_decrypt(current_block, decrypted_block, key1, key2, key3);
+        xor_blocks(decrypted_block, previous_block, plaintext + i, BLOCK_SIZE);
+        memcpy(previous_block, current_block, BLOCK_SIZE);
+    }
+}
+
+void print_hex(unsigned char *data, int len) {
+    for (int i = 0; i < len; i++) {
+        printf("%02x", data[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    unsigned char key1[BLOCK_SIZE] = "key1key1";
+    unsigned char key2[BLOCK_SIZE] = "key2key2";
+    unsigned char key3[BLOCK_SIZE] = "key3key3";
+    unsigned char iv[BLOCK_SIZE] = "initvect";
+
+    unsigned char plaintext[64];
+    unsigned char ciphertext[64];
+    unsigned char decryptedtext[64];
+
+    printf("Enter plaintext (max 64 characters): ");
+    fgets((char *)plaintext, sizeof(plaintext), stdin);
+    int len = strlen((char *)plaintext);
+    if (plaintext[len - 1] == '\n') {
+        plaintext[len - 1] = '\0';
+        len--;
+    }
+
+    int padded_len = ((len + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE; // Pad to block size
+
+    printf("\nCBC Mode Encryption:\n");
+    cbc_encrypt(plaintext, ciphertext, key1, key2, key3, iv, padded_len);
+    printf("Ciphertext: ");
+    print_hex(ciphertext, padded_len);
+
+    printf("\nCBC Mode Decryption:\n");
+    cbc_decrypt(ciphertext, decryptedtext, key1, key2, key3, iv, padded_len);
+    decryptedtext[padded_len] = '\0';
+    printf("Decrypted text: %s\n", decryptedtext);
+
+    return 0;
+}
+----------------------------------------------------------------------------------------------------------
+DES 24 28
+#include <stdio.h>
+#include <stdint.h>
+
+// Initial key is 56 bits (7 bytes)
+typedef struct {
+    uint8_t bytes[7];
+} DESKey;
+
+// Subkey is 48 bits (6 bytes)
+typedef struct {
+    uint8_t bytes[6];
+} DESSubkey;
+
+// Function to extract 28-bit subset from the initial key
+void extract_subset(const DESKey *key, uint8_t *subset, int start_bit) {
+    int bit_count = 0;
+    int byte_index = 0;
+    uint8_t current_byte = 0;
+
+    for (int i = start_bit; bit_count < 28; i++) {
+        int byte_pos = i / 8;
+        int bit_pos = i % 8;
+
+        if (key->bytes[byte_pos] & (1 << (7 - bit_pos))) {
+            current_byte |= (1 << (7 - (bit_count % 8)));
+        }
+
+        bit_count++;
+
+        if (bit_count % 8 == 0) {
+            subset[byte_index++] = current_byte;
+            current_byte = 0;
+        }
+    }
+
+    if (bit_count % 8 != 0) {
+        subset[byte_index] = current_byte;
+    }
+}
+
+// Function to combine two 24-bit subsets into a 48-bit subkey
+void combine_subsets(uint8_t *subset1, uint8_t *subset2, DESSubkey *subkey) {
+    for (int i = 0; i < 3; i++) {
+        subkey->bytes[i] = subset1[i];
+        subkey->bytes[i + 3] = subset2[i];
+    }
+}
+
+// Function to print subkey in hexadecimal
+void print_subkey(const DESSubkey *subkey) {
+    for (int i = 0; i < 6; i++) {
+        printf("%02x", subkey->bytes[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    DESKey initial_key = { .bytes = {0x13, 0x34, 0x57, 0x79, 0x9b, 0xbc, 0xdf} };
+
+    // Subsets of the initial key
+    uint8_t subset1[4] = {0};
+    uint8_t subset2[4] = {0};
+
+    // Extract 28-bit subsets from the initial key
+    extract_subset(&initial_key, subset1, 0);  // First 28 bits
+    extract_subset(&initial_key, subset2, 28); // Second 28 bits
+
+    // Combine subsets into subkeys
+    DESSubkey subkeys[16];
+    for (int i = 0; i < 16; i++) {
+        combine_subsets(subset1, subset2, &subkeys[i]);
+    }
+
+    // Print subkeys
+    for (int i = 0; i < 16; i++) {
+        printf("Subkey %d: ", i + 1);
+        print_subkey(&subkeys[i]);
+    }
+
+    return 0;
+}
+------------------------------------------------------------------------------------------------
+DES (K1, K2, c, K16)
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define BLOCK_SIZE 8
+#define NUM_ROUNDS 16
+
+// Initial Permutation table
+int IP[64] = { 58, 50, 42, 34, 26, 18, 10, 2, 60, 52, 44, 36, 28, 20, 12, 4, 
+               62, 54, 46, 38, 30, 22, 14, 6, 64, 56, 48, 40, 32, 24, 16, 8, 
+               57, 49, 41, 33, 25, 17, 9, 1, 59, 51, 43, 35, 27, 19, 11, 3, 
+               61, 53, 45, 37, 29, 21, 13, 5, 63, 55, 47, 39, 31, 23, 15, 7 };
+
+// Final Permutation table
+int FP[64] = { 40, 8, 48, 16, 56, 24, 64, 32, 39, 7, 47, 15, 55, 23, 63, 31, 
+               38, 6, 46, 14, 54, 22, 62, 30, 37, 5, 45, 13, 53, 21, 61, 29, 
+               36, 4, 44, 12, 52, 20, 60, 28, 35, 3, 43, 11, 51, 19, 59, 27, 
+               34, 2, 42, 10, 50, 18, 58, 26, 33, 1, 41, 9, 49, 17, 57, 25 };
+
+// Permutation choice 1
+int PC1[56] = { 57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18, 10, 2, 
+                59, 51, 43, 35, 27, 19, 11, 3, 60, 52, 44, 36, 63, 55, 47, 39, 
+                31, 23, 15, 7, 62, 54, 46, 38, 30, 22, 14, 6, 61, 53, 45, 37, 
+                29, 21, 13, 5, 28, 20, 12, 4 };
+
+// Permutation choice 2
+int PC2[48] = { 14, 17, 11, 24, 1, 5, 3, 28, 15, 6, 21, 10, 23, 19, 12, 4, 
+                26, 8, 16, 7, 27, 20, 13, 2, 41, 52, 31, 37, 47, 55, 30, 40, 
+                51, 45, 33, 48, 44, 49, 39, 56, 34, 53, 46, 42, 50, 36, 29, 32 };
+
+// Number of left shifts for each round
+int shift_schedule[16] = { 1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1 };
+
+// Initial Permutation Function
+void initial_permutation(uint8_t *input, uint8_t *output) {
+    for (int i = 0; i < 64; i++) {
+        int bit = (input[(IP[i] - 1) / 8] >> (7 - ((IP[i] - 1) % 8))) & 1;
+        output[i / 8] = (output[i / 8] & ~(1 << (7 - (i % 8)))) | (bit << (7 - (i % 8)));
+    }
+}
+
+// Final Permutation Function
+void final_permutation(uint8_t *input, uint8_t *output) {
+    for (int i = 0; i < 64; i++) {
+        int bit = (input[(FP[i] - 1) / 8] >> (7 - ((FP[i] - 1) % 8))) & 1;
+        output[i / 8] = (output[i / 8] & ~(1 << (7 - (i % 8)))) | (bit << (7 - (i % 8)));
+    }
+}
+
+// Left circular shift
+void left_circular_shift(uint8_t *half_key, int num_shifts) {
+    uint32_t key = (half_key[0] << 20) | (half_key[1] << 12) | (half_key[2] << 4) | (half_key[3] >> 4);
+    key = ((key << num_shifts) & 0xFFFFFFF) | (key >> (28 - num_shifts));
+    half_key[0] = (key >> 20) & 0xFF;
+    half_key[1] = (key >> 12) & 0xFF;
+    half_key[2] = (key >> 4) & 0xFF;
+    half_key[3] = (half_key[3] & 0xF) | ((key & 0xF) << 4);
+}
+
+// Key generation function
+void generate_keys(uint8_t *key, uint8_t subkeys[NUM_ROUNDS][6]) {
+    uint8_t permuted_key[7] = {0};
+    for (int i = 0; i < 56; i++) {
+        int bit = (key[(PC1[i] - 1) / 8] >> (7 - ((PC1[i] - 1) % 8))) & 1;
+        permuted_key[i / 8] = (permuted_key[i / 8] & ~(1 << (7 - (i % 8)))) | (bit << (7 - (i % 8)));
+    }
+
+    uint8_t C[4], D[4];
+    memcpy(C, permuted_key, 4);
+    memcpy(D, &permuted_key[3], 4);
+    D[3] &= 0xF;
+
+    for (int round = 0; round < NUM_ROUNDS; round++) {
+        left_circular_shift(C, shift_schedule[round]);
+        left_circular_shift(D, shift_schedule[round]);
+
+        uint8_t CD[7] = {0};
+        memcpy(CD, C, 4);
+        CD[3] |= (D[0] & 0xF0);
+        CD[4] = (D[0] << 4) | (D[1] >> 4);
+        CD[5] = (D[1] << 4) | (D[2] >> 4);
+        CD[6] = (D[2] << 4) | (D[3] >> 4);
+
+        for (int i = 0; i < 48; i++) {
+            int bit = (CD[(PC2[i] - 1) / 8] >> (7 - ((PC2[i] - 1) % 8))) & 1;
+            subkeys[round][i / 8] = (subkeys[round][i / 8] & ~(1 << (7 - (i % 8)))) | (bit << (7 - (i % 8)));
+        }
+    }
+}
+
+// DES round function (Feistel function)
+void des_round(uint8_t *R, uint8_t *subkey, uint8_t *output) {
+    // This is a simplified version of the Feistel function for demonstration purposes
+    for (int i = 0; i < 4; i++) {
+        output[i] = R[i] ^ subkey[i];
+    }
+}
+
+// DES decryption function
+void des_decrypt(uint8_t *ciphertext, uint8_t *key, uint8_t *plaintext) {
+    uint8_t subkeys[NUM_ROUNDS][6];
+    generate_keys(key, subkeys);
+
+    uint8_t permuted_input[8] = {0};
+    initial_permutation(ciphertext, permuted_input);
+
+    uint8_t L[4], R[4];
+    memcpy(L, permuted_input, 4);
+    memcpy(R, &permuted_input[4], 4);
+
+    for (int round = NUM_ROUNDS - 1; round >= 0; round--) {
+        uint8_t temp_R[4];
+        memcpy(temp_R, R, 4);
+
+        uint8_t round_output[4];
+        des_round(R, subkeys[round], round_output);
+
+        for (int i = 0; i < 4; i++) {
+            R[i] = L[i] ^ round_output[i];
+        }
+
+        memcpy(L, temp_R, 4);
+    }
+
+    uint8_t pre_output[8];
+    memcpy(pre_output, R, 4);
+    memcpy(&pre_output[4], L, 4);
+
+    final_permutation(pre_output, plaintext);
+}
+
+// Utility function to print data in hexadecimal format
+void print_hex(uint8_t *data, int len) {
+    for (int i = 0; i < len; i++) {
+        printf("%02x", data[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    uint8_t key[8];
+    uint8_t ciphertext[8];
+    uint8_t plaintext[8];
+
+    printf("Enter 8-byte key in hexadecimal (e.g. 133457799BBCDFF1): ");
+    for (int i = 0; i < 8; i++) {
+        scanf("%2hhx", &key[i]);
+    }
+
+    printf("Enter 8-byte ciphertext in hexadecimal (e.g. 85E813540F0AB405): ");
+    for (int i = 0; i < 8; i++) {
+        scanf("%2hhx", &ciphertext[i]);
+    }
+
+    des_decrypt(ciphertext, key, plaintext);
+
+    printf("Decrypted plaintext: ");
+    print_hex(plaintext, 8);
+
+    return 0;
+}
+/tmp/uhvrLy5L6w.o
+Enter 8-byte key in hexadecimal (e.g. 133457799BBCDFF1): 133457799BBCDFF1
+Enter 8-byte ciphertext in hexadecimal (e.g. 85E813540F0AB405): 85E813540F0AB405
+Decrypted plaintext: cb916855bf77b7fc
+
+
+=== Code Execution Successful ===
+------------------------------------------------------------------------------------------------
+KEYSTREAM MONEY
+#include <stdio.h>
+#include <string.h>
+
+void encrypt_decrypt(char *input, char *output, int *keystream, int length) {
+    for (int i = 0; i < length; i++) {
+        output[i] = input[i] ^ keystream[i];
+    }
+}
+
+void print_hex(char *data, int length) {
+    for (int i = 0; i < length; i++) {
+        printf("%02x", (unsigned char)data[i]);
+    }
+    printf("\n");
+}
+
+void print_string(char *data, int length) {
+    for (int i = 0; i < length; i++) {
+        printf("%c", data[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    char plaintext[] = "send more money";
+    char target_plaintext[] = "cash not needed";
+    int keystream[] = {9, 0, 1, 7, 23, 15, 21, 14, 11, 11, 2, 8, 9};
+    int length = strlen(plaintext);
+    
+    char ciphertext[length];
+    char decrypted[length];
+    int new_keystream[length];
+
+    // Encrypt the plaintext
+    encrypt_decrypt(plaintext, ciphertext, keystream, length);
+
+    printf("Ciphertext in hex: ");
+    print_hex(ciphertext, length);
+
+    // Find the new keystream to decrypt ciphertext to target plaintext
+    for (int i = 0; i < length; i++) {
+        new_keystream[i] = ciphertext[i] ^ target_plaintext[i];
+    }
+
+    // Decrypt the ciphertext using the new keystream
+    encrypt_decrypt(ciphertext, decrypted, new_keystream, length);
+
+    printf("Decrypted text with new keystream: ");
+    print_string(decrypted, length);
+
+    printf("New keystream in hex: ");
+    for (int i = 0; i < length; i++) {
+        printf("%02x", new_keystream[i]);
+    }
+    printf("\n");
+
+    return 0;
+}
+----------------------------------------------------------------------------------------
+VIGENERE CIPHER KEY
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+// Function to encrypt the plaintext using the Vigenère cipher
+void encrypt(const char *plaintext, const int *key, int key_length, char *ciphertext) {
+    int len = strlen(plaintext);
+    for (int i = 0; i < len; i++) {
+        if (isalpha(plaintext[i])) {
+            char base = isupper(plaintext[i]) ? 'A' : 'a';
+            ciphertext[i] = (plaintext[i] - base + key[i % key_length]) % 26 + base;
+        } else {
+            ciphertext[i] = plaintext[i];
+        }
+    }
+    ciphertext[len] = '\0';
+}
+
+// Function to decrypt the ciphertext using the Vigenère cipher
+void decrypt(const char *ciphertext, const int *key, int key_length, char *plaintext) {
+    int len = strlen(ciphertext);
+    for (int i = 0; i < len; i++) {
+        if (isalpha(ciphertext[i])) {
+            char base = isupper(ciphertext[i]) ? 'A' : 'a';
+            plaintext[i] = (ciphertext[i] - base - key[i % key_length] + 26) % 26 + base;
+        } else {
+            plaintext[i] = ciphertext[i];
+        }
+    }
+    plaintext[len] = '\0';
+}
+
+// Utility function to convert a string to uppercase
+void to_upper(char *str) {
+    for (int i = 0; str[i]; i++) {
+        str[i] = toupper(str[i]);
+    }
+}
+
+int main() {
+    char plaintext[256];
+    char ciphertext[256];
+    char decryptedtext[256];
+    int key[256];
+    int key_length;
+
+    printf("Enter the plaintext: ");
+    fgets(plaintext, sizeof(plaintext), stdin);
+    plaintext[strcspn(plaintext, "\n")] = '\0';  // Remove newline character
+
+    printf("Enter the key length: ");
+    scanf("%d", &key_length);
+
+    printf("Enter the key values (space separated, between 0 and 26): ");
+    for (int i = 0; i < key_length; i++) {
+        scanf("%d", &key[i]);
+    }
+
+    // Encrypt the plaintext
+    encrypt(plaintext, key, key_length, ciphertext);
+    printf("Encrypted text: %s\n", ciphertext);
+
+    // Decrypt the ciphertext
+    decrypt(ciphertext, key, key_length, decryptedtext);
+    printf("Decrypted text: %s\n", decryptedtext);
+
+    return 0;
+}
+-----------------------------------------------------------------------------------------
+PLAYFAIR POWER 2
+#include <stdio.h>
+#include <math.h>
+
+#define GRID_SIZE 5
+
+// Function to calculate factorial using iterative method
+unsigned long long factorial(int n) {
+    unsigned long long result = 1;
+    for (int i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+// Function to calculate approximate power of 2 using Stirling's approximation
+double approximate_power_of_2(int n) {
+    return 0.5 * log10(2 * 3.14159265358979323846 * n) + n * log10(n / 2.71828182845904523536);
+}
+
+int main() {
+    int grid_size = GRID_SIZE;
+    unsigned long long total_keys = factorial(grid_size * grid_size);
+
+    printf("Total possible keys without considering identical encryption results: %llu\n", total_keys);
+    printf("Approximate power of 2 for the total possible keys: %.0f\n", approximate_power_of_2(grid_size * grid_size));
+
+    // Consider effectively unique keys (taking into account identical encryption results)
+    // For Playfair cipher, effective unique keys are less than total keys due to encryption symmetry.
+
+    double effective_unique_keys = pow(26 * 25, 2); // (25*26)^2 for 25 distinct letters excluding J
+
+    printf("Approximate number of effectively unique keys: %.0f\n", effective_unique_keys);
+
+    return 0;
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+PLAYFAIR CADGON FEST
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+// Function to prepare the Playfair matrix from the given characters
+void prepare_playfair_matrix(char matrix[5][5], const char *key) {
+    int used[26] = {0};
+    int index = 0;
+
+    // Place the key in the matrix
+    for (int i = 0; key[i] != '\0'; i++) {
+        char letter = toupper(key[i]);
+        if (letter == 'J')
+            letter = 'I'; // 'I/J' are treated as the same in Playfair cipher
+
+        if (!used[letter - 'A']) {
+            matrix[index / 5][index % 5] = letter;
+            used[letter - 'A'] = 1;
+            index++;
+        }
+    }
+
+    // Fill the remaining matrix with other letters excluding 'J'
+    for (char letter = 'A'; letter <= 'Z'; letter++) {
+        if (letter != 'J' && !used[letter - 'A']) {
+            matrix[index / 5][index % 5] = letter;
+            index++;
+        }
+    }
+}
+
+// Function to find the position of a character in the Playfair matrix
+void find_position(char matrix[5][5], char ch, int *row, int *col) {
+    if (ch == 'J')
+        ch = 'I'; // 'I/J' are treated as the same in Playfair cipher
+
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 5; j++) {
+            if (matrix[i][j] == ch) {
+                *row = i;
+                *col = j;
+                return;
+            }
+        }
+    }
+}
+
+// Function to encrypt a message using the Playfair cipher
+void playfair_encrypt(char matrix[5][5], const char *plaintext, char *ciphertext) {
+    int len = strlen(plaintext);
+    int index = 0;
+
+    // Process the message in pairs
+    for (int i = 0; i < len; i += 2) {
+        char first = toupper(plaintext[i]);
+        char second = (i + 1 < len) ? toupper(plaintext[i + 1]) : 'X'; // Use 'X' as padding if message length is odd
+
+        // Skip non-alphabet characters
+        if (!isalpha(first)) {
+            i--;
+            continue;
+        }
+        if (!isalpha(second)) {
+            second = 'X';
+        }
+
+        int row1, col1, row2, col2;
+        find_position(matrix, first, &row1, &col1);
+        find_position(matrix, second, &row2, &col2);
+
+        if (row1 == row2) {
+            // Same row: shift columns to the right (wrap around)
+            ciphertext[index++] = matrix[row1][(col1 + 1) % 5];
+            ciphertext[index++] = matrix[row2][(col2 + 1) % 5];
+        } else if (col1 == col2) {
+            // Same column: shift rows down (wrap around)
+            ciphertext[index++] = matrix[(row1 + 1) % 5][col1];
+            ciphertext[index++] = matrix[(row2 + 1) % 5][col2];
+        } else {
+            // Rectangle rule: form a rectangle and take opposite corners
+            ciphertext[index++] = matrix[row1][col2];
+            ciphertext[index++] = matrix[row2][col1];
+        }
+    }
+
+    ciphertext[index] = '\0'; // Null-terminate the ciphertext
+}
+
+int main() {
+    char key[] = "MFHIKUNOPQZVWXYELARGD"; // Playfair key
+    char matrix[5][5];
+
+    // Prepare the Playfair matrix
+    prepare_playfair_matrix(matrix, key);
+
+    // Print the Playfair matrix
+    printf("Playfair Matrix:\n");
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 5; j++) {
+            printf("%c ", matrix[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+
+    // Encrypt the message
+    const char *plaintext = "Must see you over Cadogan West. Coming at once.";
+    char ciphertext[256];
+
+    playfair_encrypt(matrix, plaintext, ciphertext);
+
+    // Output the encrypted message
+    printf("Original message:\n%s\n\n", plaintext);
+    printf("Encrypted message:\n%s\n", ciphertext);
+
+    return 0;
+}
+------------------------------------------------------------------------------------------------
+JAPANESE DESTROYER
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define GRID_SIZE 5
+
+// Function to prepare the Playfair matrix from the given characters
+void prepare_playfair_matrix(char matrix[GRID_SIZE][GRID_SIZE], const char *key) {
+    int used[26] = {0};
+    int index = 0;
+
+    // Place the key in the matrix
+    for (int i = 0; key[i] != '\0'; i++) {
+        char letter = toupper(key[i]);
+        if (letter == 'J')
+            letter = 'I'; // 'I/J' are treated as the same in Playfair cipher
+
+        if (!used[letter - 'A']) {
+            matrix[index / GRID_SIZE][index % GRID_SIZE] = letter;
+            used[letter - 'A'] = 1;
+            index++;
+        }
+    }
+
+    // Fill the remaining matrix with other letters excluding 'J'
+    for (char letter = 'A'; letter <= 'Z'; letter++) {
+        if (letter != 'J' && !used[letter - 'A']) {
+            matrix[index / GRID_SIZE][index % GRID_SIZE] = letter;
+            index++;
+        }
+    }
+}
+
+// Function to find the position of a character in the Playfair matrix
+void find_position(char matrix[GRID_SIZE][GRID_SIZE], char ch, int *row, int *col) {
+    if (ch == 'J')
+        ch = 'I'; // 'I/J' are treated as the same in Playfair cipher
+
+    for (int i = 0; i < GRID_SIZE; i++) {
+        for (int j = 0; j < GRID_SIZE; j++) {
+            if (matrix[i][j] == ch) {
+                *row = i;
+                *col = j;
+                return;
+            }
+        }
+    }
+}
+
+// Function to decrypt a message using the Playfair cipher
+void playfair_decrypt(char matrix[GRID_SIZE][GRID_SIZE], const char *ciphertext, char *plaintext) {
+    int len = strlen(ciphertext);
+    int index = 0;
+
+    // Process the message in pairs
+    for (int i = 0; i < len; i += 2) {
+        char first = toupper(ciphertext[i]);
+        char second = (i + 1 < len) ? toupper(ciphertext[i + 1]) : 'X'; // Use 'X' as padding if message length is odd
+
+        // Skip non-alphabet characters
+        if (!isalpha(first)) {
+            i--;
+            continue;
+        }
+        if (!isalpha(second)) {
+            second = 'X';
+        }
+
+        int row1, col1, row2, col2;
+        find_position(matrix, first, &row1, &col1);
+        find_position(matrix, second, &row2, &col2);
+
+        if (row1 == row2) {
+            // Same row: shift columns to the left (wrap around)
+            plaintext[index++] = matrix[row1][(col1 + 4) % GRID_SIZE];
+            plaintext[index++] = matrix[row2][(col2 + 4) % GRID_SIZE];
+        } else if (col1 == col2) {
+            // Same column: shift rows up (wrap around)
+            plaintext[index++] = matrix[(row1 + 4) % GRID_SIZE][col1];
+            plaintext[index++] = matrix[(row2 + 4) % GRID_SIZE][col2];
+        } else {
+            // Rectangle rule: form a rectangle and take opposite corners
+            plaintext[index++] = matrix[row1][col2];
+            plaintext[index++] = matrix[row2][col1];
+        }
+    }
+
+    plaintext[index] = '\0'; // Null-terminate the plaintext
+}
+
+int main() {
+    char key[] = "PT109"; // Playfair key
+    char matrix[GRID_SIZE][GRID_SIZE];
+
+    // Prepare the Playfair matrix
+    prepare_playfair_matrix(matrix, key);
+
+    // Print the Playfair matrix
+    printf("Playfair Matrix:\n");
+    for (int i = 0; i < GRID_SIZE; i++) {
+        for (int j = 0; j < GRID_SIZE; j++) {
+            printf("%c ", matrix[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+
+    // Ciphertext received at the Australian wireless station
+    const char *ciphertext1 = "KXJEY UREBE ZWEHE WRYTU HEYFS";
+    const char *ciphertext2 = "KREHE GOYFI WTTTU OLKSY CAJPO";
+    const char *ciphertext3 = "BOTEI ZONTX BYBNT GONEY CUZWR";
+    const char *ciphertext4 = "GDSON SXBOU YWRHE BAAHY USEDQ";
+
+    char plaintext[256];
+
+    // Decrypt each line of ciphertext
+    playfair_decrypt(matrix, ciphertext1, plaintext);
+    printf("Decrypted Message 1: %s\n", plaintext);
+
+    playfair_decrypt(matrix, ciphertext2, plaintext);
+    printf("Decrypted Message 2: %s\n", plaintext);
+
+    playfair_decrypt(matrix, ciphertext3, plaintext);
+    printf("Decrypted Message 3: %s\n", plaintext);
+
+    playfair_decrypt(matrix, ciphertext4, plaintext);
+    printf("Decrypted Message 4: %s\n", plaintext);
+
+    return 0;
+}
+--------------------------------------------------------------------------------------------
+SENDER RECEIVER
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define ALPHABET_SIZE 26
+
+// Function to prepare the monoalphabetic cipher permutation based on a keyword
+void prepare_monoalphabetic_cipher(char *keyword, char *cipher) {
+    int used[ALPHABET_SIZE] = {0};
+    int key_len = strlen(keyword);
+    int index = 0;
+
+    // Place the keyword in the cipher
+    for (int i = 0; i < key_len; i++) {
+        char letter = toupper(keyword[i]);
+        if (!used[letter - 'A']) {
+            cipher[index++] = letter;
+            used[letter - 'A'] = 1;
+        }
+    }
+
+    // Fill the remaining cipher with unused letters
+    for (char letter = 'A'; letter <= 'Z'; letter++) {
+        if (!used[letter - 'A']) {
+            cipher[index++] = letter;
+        }
+    }
+
+    cipher[ALPHABET_SIZE] = '\0'; // Null-terminate the cipher
+}
+
+// Function to encrypt a message using the monoalphabetic cipher
+void monoalphabetic_encrypt(char *plaintext, char *cipher, char *ciphertext) {
+    int len = strlen(plaintext);
+
+    for (int i = 0; i < len; i++) {
+        if (isalpha(plaintext[i])) {
+            char original = toupper(plaintext[i]);
+            ciphertext[i] = islower(plaintext[i]) ? tolower(cipher[original - 'A']) : cipher[original - 'A'];
+        } else {
+            ciphertext[i] = plaintext[i]; // Leave non-alphabetic characters unchanged
+        }
+    }
+
+    ciphertext[len] = '\0'; // Null-terminate the ciphertext
+}
+
+// Function to decrypt a message using the monoalphabetic cipher
+void monoalphabetic_decrypt(char *ciphertext, char *cipher, char *plaintext) {
+    int len = strlen(ciphertext);
+
+    for (int i = 0; i < len; i++) {
+        if (isalpha(ciphertext[i])) {
+            char encrypted = toupper(ciphertext[i]);
+            // Find the corresponding plaintext letter from the cipher
+            for (int j = 0; j < ALPHABET_SIZE; j++) {
+                if (cipher[j] == encrypted) {
+                    plaintext[i] = islower(ciphertext[i]) ? tolower('A' + j) : 'A' + j;
+                    break;
+                }
+            }
+        } else {
+            plaintext[i] = ciphertext[i]; // Leave non-alphabetic characters unchanged
+        }
+    }
+
+    plaintext[len] = '\0'; // Null-terminate the plaintext
+}
+
+int main() {
+    char keyword[ALPHABET_SIZE + 1];
+    char plaintext[256];
+    char cipher[ALPHABET_SIZE + 1];
+    char ciphertext[256];
+    char decrypted[256];
+
+    // Input keyword and plaintext from user
+    printf("Enter a keyword for the cipher: ");
+    scanf("%s", keyword);
+
+    printf("Enter the plaintext to encrypt: ");
+    getchar(); // Consume newline character left by scanf
+    fgets(plaintext, sizeof(plaintext), stdin);
+    plaintext[strcspn(plaintext, "\n")] = '\0'; // Remove newline character from fgets result
+
+    // Prepare the monoalphabetic cipher permutation based on the keyword
+    prepare_monoalphabetic_cipher(keyword, cipher);
+
+    // Encrypt the plaintext
+    monoalphabetic_encrypt(plaintext, cipher, ciphertext);
+    printf("\nEncrypted Message: %s\n", ciphertext);
+
+    // Decrypt the ciphertext
+    monoalphabetic_decrypt(ciphertext, cipher, decrypted);
+    printf("Decrypted Message: %s\n", decrypted);
+
+    return 0;
+}
+--------------------------------------------------------------------------------------------------------------------
+**#@$%&
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+// Function to decrypt the ciphertext using a simple substitution cipher
+void decrypt_substitution(char *ciphertext, char *plaintext) {
+    int len = strlen(ciphertext);
+
+    for (int i = 0; i < len; i++) {
+        char ch = ciphertext[i];
+
+        // Perform character substitution based on observed patterns and common English words
+        switch (ch) {
+            case '5':
+                plaintext[i] = 'h'; break;
+            case '3':
+                plaintext[i] = 'e'; break;
+            case '0':
+                plaintext[i] = 'r'; break;
+            case ')':
+                plaintext[i] = 'n'; break;
+            case '6':
+                plaintext[i] = 's'; break;
+            case '*':
+                plaintext[i] = 'i'; break;
+            case ';':
+                plaintext[i] = 'o'; break;
+            case '4':
+                plaintext[i] = 'd'; break;
+            case '8':
+                plaintext[i] = 'l'; break;
+            case '2':
+                plaintext[i] = 'w'; break;
+            case '9':
+                plaintext[i] = 'y'; break;
+            case '1':
+                plaintext[i] = 'f'; break;
+            case '[':
+                plaintext[i] = 'v'; break;
+            case ':':
+                plaintext[i] = 'g'; break;
+            case '-':
+                plaintext[i] = 'b'; break;
+            case '?':
+                plaintext[i] = 'u'; break;
+            default:
+                plaintext[i] = ch; // Retain characters not explicitly substituted
+        }
+    }
+
+    plaintext[len] = '\0'; // Null-terminate the plaintext
+}
+
+int main() {
+    char ciphertext[] = "53‡‡†305))6*;4826)4‡.)4‡);806*;48†8¶60))85;;]8*;:‡*8†83"
+                        "(88)5*†;46(;88*96*?;8)*‡(;485);5*†2:*‡(;4956*2(5*—4)8¶8*"
+                        ";4069285);)6†8)4‡‡;1(‡9;48081;8:8‡1;48†85;4)485†528806*81 (‡9;48;(88;4(‡?34;48)4‡;161;:188;‡?;";
+    char plaintext[500]; // Adjust size as necessary
+
+    // Decrypt the ciphertext
+    decrypt_substitution(ciphertext, plaintext);
+
+    // Print the decrypted message
+    printf("Decrypted Message:\n%s\n", plaintext);
+
+    return 0;
+}
+---------------------------------------------------------------------------------------------------------------------------------------------
+BU BREAK
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define ALPHABET_SIZE 26
+
+// Function to compute the greatest common divisor (GCD) of two numbers using Euclid's algorithm
+int gcd(int a, int b) {
+    while (b != 0) {
+        int temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+// Function to find the modular inverse of a number 'a' under modulo 'm'
+// Returns -1 if modular inverse does not exist
+int mod_inverse(int a, int m) {
+    a = a % m;
+    for (int x = 1; x < m; x++) {
+        if ((a * x) % m == 1) {
+            return x;
+        }
+    }
+    return -1; // No modular inverse exists
+}
+
+// Function to decrypt the affine cipher based on known plaintext frequencies
+void decrypt_affine_cipher(char *ciphertext, char *plaintext, int a, int b) {
+    int len = strlen(ciphertext);
+
+    // Compute modular inverse of 'a' under modulo ALPHABET_SIZE (26)
+    int a_inv = mod_inverse(a, ALPHABET_SIZE);
+    if (a_inv == -1) {
+        printf("Error: Modular inverse of 'a' does not exist.\n");
+        return;
+    }
+
+    for (int i = 0; i < len; i++) {
+        char ch = ciphertext[i];
+
+        if (isalpha(ch)) {
+            // Decrypt each character using the affine decryption formula
+            char decrypted_char = ((a_inv * (ch - 'A' - b)) % ALPHABET_SIZE + ALPHABET_SIZE) % ALPHABET_SIZE + 'A';
+            plaintext[i] = decrypted_char;
+        } else {
+            plaintext[i] = ch; // Retain non-alphabetical characters as is
+        }
+    }
+
+    plaintext[len] = '\0'; // Null-terminate the plaintext
+}
+
+int main() {
+    char ciphertext[1000]; // Adjust size as necessary
+    char plaintext[1000];  // Adjust size as necessary
+    int a, b;
+
+    // Input ciphertext from user
+    printf("Enter the ciphertext: ");
+    fgets(ciphertext, sizeof(ciphertext), stdin);
+    ciphertext[strcspn(ciphertext, "\n")] = '\0'; // Remove newline character from fgets result
+
+    // Known information from the problem statement
+    printf("Assume the affine cipher is of the form E(x) = (ax + b) mod 26.\n");
+    printf("Enter the values of 'a' and 'b' (separated by a space): ");
+    scanf("%d %d", &a, &b);
+
+    // Decrypt the ciphertext using the specified 'a' and 'b'
+    decrypt_affine_cipher(ciphertext, plaintext, a, b);
+
+    // Print the decrypted message
+    printf("\nDecrypted Message:\n%s\n", plaintext);
+
+    return 0;
+}
+Enter the ciphertext: 53‡‡†305))6*;4826)4‡.)4‡);806*;48†8¶60))85;;]8*;:‡*8†83(88)5*†;46(;88*96*?;8)*‡(;485);5*†2:*‡(;4956*2(5*—4)8¶8*;4069285);)6†8)4‡‡;1(‡9;48081;8:8‡1;48†85;4)485†528806*81 (‡9;48;(88;4(‡?34;48)4‡;161;:188;‡?;;
+Assume the affine cipher is of the form E(x) = (ax + b) mod 26.
+Enter the values of 'a' and 'b' (separated by a space): 9 3
+------------------------------------------------------------------------------------------------------------------------------------------
+CEASER CIPHER E(K)
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#define ALPHABET_SIZE 26
+
+// Function to compute the greatest common divisor (GCD) of two numbers using Euclid's algorithm
+int gcd(int a, int b) {
+    while (b != 0) {
+        int temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+// Function to encrypt a single character using the affine Caesar cipher
+char encrypt_char(int a, int b, char plain_char) {
+    if (isalpha(plain_char)) {
+        // Convert character to uppercase and normalize to 0-25 range
+        int p = toupper(plain_char) - 'A';
+
+        // Encrypt using the affine cipher formula: C = (a*p + b) mod 26
+        int c = (a * p + b) % ALPHABET_SIZE;
+
+        // Convert back to uppercase character
+        return c + 'A';
+    } else {
+        // Return non-alphabetical characters as is
+        return plain_char;
+    }
+}
+
+// Main function to demonstrate encryption and conditions
+int main() {
+    int a, b;
+
+    // Prompt user to enter values for 'a' and 'b'
+    printf("Enter the values of 'a' and 'b' (separated by a space): ");
+    scanf("%d %d", &a, &b);
+
+    // Check if 'a' and 'b' are valid for the affine Caesar cipher
+    if (gcd(a, ALPHABET_SIZE) != 1) {
+        printf("Error: 'a' must be coprime with 26 (i.e., gcd(a, 26) = 1).\n");
+        return 1;
+    }
+
+    if (gcd(b, ALPHABET_SIZE) != 1) {
+        printf("Error: 'b' must be coprime with 26 (i.e., gcd(b, 26) = 1).\n");
+        return 1;
+    }
+
+    // Encrypt a sample plaintext
+    char plaintext[] = "HELLO";
+    char ciphertext[sizeof(plaintext)];
+
+    // Encrypt each character in the plaintext
+    for (int i = 0; i < sizeof(plaintext) - 1; i++) { // sizeof(plaintext) includes null terminator
+        ciphertext[i] = encrypt_char(a, b, plaintext[i]);
+    }
+    ciphertext[sizeof(plaintext) - 1] = '\0'; // Null-terminate the ciphertext string
+
+    // Print the encrypted message
+    printf("Plaintext: %s\n", plaintext);
+    printf("Ciphertext: %s\n", ciphertext);
+
+    return 0;
+}
+/tmp/5jG7CQg8cf.o
+Enter the values of 'a' and 'b' (separated by a space): 11 3
+Plaintext: HELLO
+Ciphertext: CVUUB
+
+
+=== Code Execution Successful ===-
+-----------------------------------------------------------------------------------------------------------------------------------------
+POLY
+#include<stdio.h>
+#include<string.h>
+#include<stdlib.h>
+#include<ctype.h>
+void encrypt(char plaintext[],char key[],char ciphertext[]){
+	int plen=strlen(plaintext);
+	int klen=strlen(key);
+	for(int i=0;i<plen;i++){
+		char p=toupper(plaintext[i]);
+		char k=toupper(key[i%klen]);
+		if(isalpha(p)){
+			ciphertext[i]=((p-'A'+k-'A')%26)+'A';
+		}else{
+			ciphertext[i]=plaintext[i];
+		}
+	}
+	ciphertext[plen]='\0';
+}
+void decrypt(char *ciphertext,char *key,char *plaintext){
+	int clen=strlen(ciphertext);
+	int klen=strlen(key);
+	for(int i=0;i<clen;i++){
+		char c=tolower(ciphertext[i]);
+		char k=tolower(key[i%klen]);
+		if(isalpha(c)){
+			plaintext[i]=((c-'A'-(k-'A')+26)%26)+'A';
+		}else{
+			plaintext[i]=ciphertext[i];
+		}
+	}
+	plaintext[clen]='\0';
+}
+int main(){
+	char plaintext[100],key[100],ciphertext[100],decryptedtext[100];
+	printf("Enter plaintext:");
+	fgets(plaintext,sizeof(plaintext),stdin);
+	printf("Enter key:");
+	fgets(key,sizeof(key),stdin);
+	encrypt(plaintext, key, ciphertext);
+	printf("Ciphertext:%s",ciphertext);
+	decrypt(ciphertext,key,decryptedtext);
+	printf("DecryptedText:%s",decryptedtext);
+	return 0;
+}
+--------------------------------------------------------------------------------------------------------
+MONO
+#include<stdio.h>
+#include<string.h>
+#include<ctype.h>
+void encrypt(char *plaintext,const char *key){
+	char ciphertext[strlen(plaintext)+1];
+	int i;
+	for(i=0;plaintext[i]!='\0';i++){
+		char ch=plaintext[i];
+		if(isupper(ch)){
+			ciphertext[i]=key[ch-'A'];
+		}else if(islower(ch)){
+			ciphertext[i]=tolower(key[ch-'a']);
+		}else{
+			ciphertext[i]=ch;
+		}
+	}
+	ciphertext[i]='\0';
+	printf("Encrypted string:%s\n",ciphertext);	
+}
+int main(){
+	char plaintext[100];
+	char key[27];
+	printf("Enter a string:");
+	fgets(plaintext,sizeof(plaintext),stdin);
+	plaintext[strcspn(plaintext,"\n")]='\0';
+	printf("Enter the 26-character subsitution key:");
+	fgets(key,sizeof(key),stdin);
+	key[strcspn(key,"\n")]='\0';
+	if(strlen(key)!=26){
+		printf("Invalid Key\n");
+		return 1;
+	}
+	encrypt(plaintext,key);
+	return 0;
+}
+------------------------------------------------------------------------------------------
+CEASER
+#include<stdio.h>
+#include<conio.h>
+#include<string.h>
+#include<ctype.h>
+int main(){
+	char plain[10],cipher[10];
+	int key,i,length;
+	printf("Enter plaintext:");
+	scanf("%s",&plain);
+	printf("Enter key:");
+	scanf("%d",&key);
+	printf("\nPlaintext:%s",plain);
+	printf("\n\nENCRYPTED MESSAGE:");
+	length=strlen(plain);
+	for(i=0;i<length;i++){
+		cipher[i]=plain[i]+key;
+		if(isupper(plain[i])&&(cipher[i]>'Z'))
+		cipher[i]-=26;
+		if(isupper(plain[i])&&(cipher[i]>'z'))
+		cipher[i]-=26;
+		printf("%c",cipher[i]);
+	}
+	printf("\n\nDECRYPTED MESSAGE:");
+	for(i=0;i<length;i++){
+		plain[i]=cipher[i]-key;
+		if(isupper(cipher[i])&&(plain[i]<'A'))
+		plain[i]+=26;
+		if(islower(cipher[i])&&(plain[i]<'a'))
+		plain[i]+=26;
+		printf("%c",plain[i]);
+	}
+	return 0;
+}
+-----------------------------------------------------------------------------------------------------------------------
+MY DES
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+static const int IP[] = {2, 6, 3, 1, 4, 8, 5, 7};
+static const int IP_INV[] = {4, 1, 3, 5, 7, 2, 8, 6};
+static const uint64_t KEY = 0x133457799BBCDFF1;
+static const uint64_t CIPHERTEXT = 0x0123456789ABCDEF;
+
+uint64_t permute(uint64_t input, const int *table, int size) {
+    uint64_t result = 0;
+    for (int i = 0; i < size; i++) {
+        result |= ((input >> (64 - table[i])) & 1) << (size - 1 - i);
+    }
+    return result;
+}
+
+uint64_t des_decrypt(uint64_t ciphertext, uint64_t key) {
+    uint64_t permuted_ciphertext = permute(ciphertext, IP, 8);
+    uint64_t decrypted = permuted_ciphertext ^ key;
+    decrypted = permute(decrypted, IP_INV, 8);
+    return decrypted;
+}
+
+int main() {
+    uint64_t decrypted = des_decrypt(CIPHERTEXT, KEY);
+    printf("Ciphertext: 0x%016" PRIX64 "\n", CIPHERTEXT);
+    printf("Decrypted: 0x%016" PRIX64 "\n", decrypted);
+    return 0;
+}
+--------------------------------------------------------------------------------------------------------------
+PLAYFAIR2LETATTIME
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define SIZE 5
+
+// Function to prepare the key matrix based on the given keyword
+void prepare_key_matrix(char key[], char key_matrix[SIZE][SIZE]) {
+    int i, j, k;
+    int key_length = strlen(key);
+    int filled[26] = {0}; // Array to keep track of letters used in the key
+
+    // Initialize matrix with keyword
+    k = 0;
+    for (i = 0; i < SIZE; i++) {
+        for (j = 0; j < SIZE; j++) {
+            if (k < key_length) {
+                if (!filled[key[k] - 'A'] && key[k] != 'J') {
+                    key_matrix[i][j] = key[k];
+                    filled[key[k] - 'A'] = 1;
+                } else {
+                    j--; // Skip duplicate letters or 'J'
+                }
+                k++;
+            } else {
+                for (char ch = 'A'; ch <= 'Z'; ch++) {
+                    if (!filled[ch - 'A'] && ch != 'J') {
+                        key_matrix[i][j] = ch;
+                        filled[ch - 'A'] = 1;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Function to find the position of a character in the key matrix
+void find_position(char key_matrix[SIZE][SIZE], char ch, int *row, int *col) {
+    if (ch == 'J')
+        ch = 'I'; // Treat 'J' as 'I'
+
+    for (*row = 0; *row < SIZE; (*row)++) {
+        for (*col = 0; *col < SIZE; (*col)++) {
+            if (key_matrix[*row][*col] == ch)
+                return;
+        }
+    }
+}
+
+// Function to encrypt a pair of characters using the Playfair cipher rules
+void encrypt_pair(char key_matrix[SIZE][SIZE], char ch1, char ch2, char *enc_ch1, char *enc_ch2) {
+    int r1, c1, r2, c2;
+
+    // Find positions of both characters in the key matrix
+    find_position(key_matrix, ch1, &r1, &c1);
+    find_position(key_matrix, ch2, &r2, &c2);
+
+    // Case 1: Same row
+    if (r1 == r2) {
+        *enc_ch1 = key_matrix[r1][(c1 + 1) % SIZE];
+        *enc_ch2 = key_matrix[r2][(c2 + 1) % SIZE];
+    }
+    // Case 2: Same column
+    else if (c1 == c2) {
+        *enc_ch1 = key_matrix[(r1 + 1) % SIZE][c1];
+        *enc_ch2 = key_matrix[(r2 + 1) % SIZE][c2];
+    }
+    // Case 3: Form a rectangle
+    else {
+        *enc_ch1 = key_matrix[r1][c2];
+        *enc_ch2 = key_matrix[r2][c1];
+    }
+}
+
+// Function to clean up plaintext by removing non-alphabetic characters and merging 'J' and 'I'
+void cleanup_plaintext(char plaintext[], char clean_text[]) {
+    int idx = 0;
+    int len = strlen(plaintext);
+
+    for (int i = 0; i < len; i++) {
+        if (isalpha(plaintext[i])) {
+            clean_text[idx++] = toupper(plaintext[i]);
+            if (plaintext[i] == 'J')
+                clean_text[idx - 1] = 'I'; // Treat 'J' as 'I'
+        }
+    }
+    clean_text[idx] = '\0';
+}
+
+// Main function for Playfair cipher encryption
+int main() {
+    char key[100], plaintext[1000], clean_text[1000];
+    char key_matrix[SIZE][SIZE];
+    char encrypted_text[1000];
+    int i, j, k;
+    char enc_ch1, enc_ch2;
+
+    // Prompt user for input
+    printf("Enter the keyword for Playfair cipher (letters only, no 'J'): ");
+    fgets(key, sizeof(key), stdin);
+
+    printf("Enter the plaintext to encrypt: ");
+    fgets(plaintext, sizeof(plaintext), stdin);
+
+    // Remove newline characters from inputs
+    key[strcspn(key, "\n")] = '\0';
+    plaintext[strcspn(plaintext, "\n")] = '\0';
+
+    // Prepare the key matrix
+    prepare_key_matrix(key, key_matrix);
+
+    // Clean up the plaintext (remove non-alphabetic characters and merge 'J' and 'I')
+    cleanup_plaintext(plaintext, clean_text);
+
+    // Encrypt the plaintext in pairs
+    k = 0;
+    for (i = 0; i < strlen(clean_text); i += 2) {
+        encrypt_pair(key_matrix, clean_text[i], clean_text[i + 1], &enc_ch1, &enc_ch2);
+        encrypted_text[k++] = enc_ch1;
+        encrypted_text[k++] = enc_ch2;
+    }
+    encrypted_text[k] = '\0'; // Null-terminate the encrypted text
+
+    // Print the encrypted ciphertext
+    printf("\nPlaintext: %s\n", plaintext);
+    printf("Cleaned Text: %s\n", clean_text);
+    printf("Key Matrix:\n");
+    for (i = 0; i < SIZE; i++) {
+        for (j = 0; j < SIZE; j++) {
+            printf("%c ", key_matrix[i][j]);
+        }
+        printf("\n");
+    }
+    printf("Ciphertext: %s\n", encrypted_text);
+
+    return 0;
+}
+--------------------------------------------------------------------------------------------------------------
